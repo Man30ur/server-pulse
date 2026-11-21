@@ -1,0 +1,43 @@
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Build & Packaged Extension
+agent/server-pulse
+bin/
+dist/
+build/
+out/
+*.zip
+*.crx
+*.xpi
+
+# Dependencies
+node_modules/
+
+# Logs & OS
+logs/
+*.log
+*.log.*
+tmp/
+.DS_Store
+Thumbs.db
+*~
+*.swp
+
+# Local AI workspace docs & agent configs
+.agents/
+.cursor/
+.cursorignore
+.cursorrules
+.geminiignore
+.clinerules
+AGENTS.md
+GEMINI.md
+CLAUDE.md
+AI_CODEMAP.md
+ROADMAP.md
+SKILLS.md

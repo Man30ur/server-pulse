@@ -1,0 +1,25 @@
+services:
+  server-pulse:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: server-pulse
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      PULSE_PROC_ROOT: /host/proc
+      PULSE_DISK_PATH: /host/hostname
+      PULSE_HOSTNAME_FILE: /host/hostname
+    ports:
+      - "${PULSE_BIND:-0.0.0.0}:${PULSE_PORT:-9191}:${PULSE_PORT:-9191}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc:/host/proc:ro
+      - /etc/hostname:/host/hostname:ro
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 32m
