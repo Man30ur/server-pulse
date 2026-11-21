@@ -6,7 +6,15 @@ Ultra-lightweight, zero-bloat Linux server & Docker container monitor with a min
   <img src="docs/screenshot.png" alt="Server-Pulse dashboard (demo data)" width="360">
 </p>
 
-📖 **راهنمای کامل نصب به زبان فارسی:** [docs/INSTALL.fa.md](./docs/INSTALL.fa.md)
+📖 **Full install guide / راهنمای کامل نصب:** [English](./docs/INSTALL.md) · [فارسی](./docs/INSTALL.fa.md)
+
+**Languages:** [English](#english) · [فارسی](#فارسی)
+
+---
+
+<a id="english"></a>
+
+## English
 
 * **Micro-Agent (Go stdlib only):** `~8 MB` `FROM scratch` Docker image with the web dashboard embedded (`go:embed`), `~3–5 MB` RAM, `0.00%` idle CPU, read-only Docker socket (`:ro`), `2.5s` single-flight cache.
 * **Chrome MV3 Extension (Vanilla HTML/CSS/JS):** `~37 KB` total (`17 KB` zipped), zero frameworks (`no React/npm`), strict CSP, live toolbar Badge (`RAM%` or `CPU%`), per-container RAM/CPU rows, collapsible Top Processes.
@@ -83,3 +91,43 @@ bash deploy/pack-extension.sh
 ## License
 
 [MIT](./LICENSE)
+
+---
+
+<a id="فارسی"></a>
+
+<div dir="rtl">
+
+## فارسی
+
+**Server-Pulse** یک ابزار فوق‌سبک برای دیدن وضعیت زنده سرور لینوکسی و کانتینرهای داکر است: مصرف CPU، رم و دیسک، تک‌تک کانتینرها و برنامه‌های پرمصرف، در یک صفحه تیره و مینیمال.
+
+- **ایجنت روی سرور:** یک ایمیج حدود ۸ مگابایت، مصرف رم حدود ۳ تا ۵ مگابایت و CPU تقریباً صفر.
+- **داشبورد وب:** بدون نصب هیچ برنامه‌ای، حتی روی گوشی.
+- **افزونه Chrome (اختیاری):** نمایش درصد مصرف روی آیکون نوار مرورگر.
+
+### نصب سریع
+
+۱. روی سرور (با SSH) این یک خط را اجرا کنید:
+
+</div>
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Man30ur/server-pulse/main/deploy/install.sh | bash
+```
+
+<div dir="rtl">
+
+۲. در پایان دو لینک چاپ می‌شود. لینک `http://...#TOKEN` را در مرورگر باز کنید تا داشبورد زنده را ببینید.
+
+۳. (اختیاری) برای افزونه Chrome، فایل `server-pulse-extension.zip` را از [Releases](https://github.com/Man30ur/server-pulse/releases/latest) دانلود کنید، در `chrome://extensions` با **Load unpacked** نصب کنید و لینک `pulse://...` را در تنظیمات افزونه پیست کنید.
+
+### امنیت
+
+- برنامه فقط می‌خواند و هیچ راهی برای تغییر یا اجرای دستور روی سرور ندارد.
+- دسترسی به API فقط با توکن تصادفی ۶۴ کاراکتری ممکن است. توکن مثل رمز عبور است و نباید با کسی به اشتراک گذاشته شود.
+
+📖 **راهنمای کامل و قدم‌به‌قدم همراه با سوال‌های رایج:** [docs/INSTALL.fa.md](./docs/INSTALL.fa.md)
+
+</div>
+
