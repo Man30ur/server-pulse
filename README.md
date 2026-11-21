@@ -1,6 +1,12 @@
 # Server-Pulse
 
-Ultra-lightweight, zero-bloat Linux server & Docker container monitor with a minimal OLED Dark Chrome Manifest V3 extension.
+Ultra-lightweight, zero-bloat Linux server & Docker container monitor with a minimal OLED Dark web dashboard and Chrome Manifest V3 extension.
+
+<p align="center">
+  <img src="docs/screenshot.png" alt="Server-Pulse dashboard (demo data)" width="360">
+</p>
+
+📖 **راهنمای کامل نصب به زبان فارسی:** [docs/INSTALL.fa.md](./docs/INSTALL.fa.md)
 
 * **Micro-Agent (Go stdlib only):** `~8 MB` `FROM scratch` Docker image with the web dashboard embedded (`go:embed`), `~3–5 MB` RAM, `0.00%` idle CPU, read-only Docker socket (`:ro`), `2.5s` single-flight cache.
 * **Chrome MV3 Extension (Vanilla HTML/CSS/JS):** `~37 KB` total (`17 KB` zipped), zero frameworks (`no React/npm`), strict CSP, live toolbar Badge (`RAM%` or `CPU%`), per-container RAM/CPU rows, collapsible Top Processes.
