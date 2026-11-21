@@ -2,7 +2,7 @@
 
 Ultra-lightweight, zero-bloat Linux server & Docker container monitor with a minimal OLED Dark Chrome Manifest V3 extension.
 
-* **Micro-Agent (Go stdlib only):** `8 MB` `FROM scratch` Docker image, `~3–4 MB` RAM, `0.00%` idle CPU, read-only Docker socket (`:ro`), `2.5s` single-flight cache.
+* **Micro-Agent (Go stdlib only):** `~8 MB` `FROM scratch` Docker image with the web dashboard embedded (`go:embed`), `~3–5 MB` RAM, `0.00%` idle CPU, read-only Docker socket (`:ro`), `2.5s` single-flight cache.
 * **Chrome MV3 Extension (Vanilla HTML/CSS/JS):** `~37 KB` total (`17 KB` zipped), zero frameworks (`no React/npm`), strict CSP, live toolbar Badge (`RAM%` or `CPU%`), per-container RAM/CPU rows, collapsible Top Processes.
 
 ---
@@ -15,13 +15,18 @@ Ultra-lightweight, zero-bloat Linux server & Docker container monitor with a min
 curl -fsSL https://raw.githubusercontent.com/Man30ur/server-pulse/main/deploy/install.sh | bash
 ```
 
-The installer clones into `/opt/server-pulse`, generates a 64-char random Bearer token in `.env` (`chmod 600`), builds & starts the read-only `scratch` container, verifies `/health`, and prints a single **Quick-Connect link**:
+The installer pulls the prebuilt `~8 MB` multi-arch image (`ghcr.io/man30ur/server-pulse`, falls back to a local build), generates a 64-char random Bearer token in `.env` (`chmod 600`), starts the read-only container, verifies `/health`, and prints two links:
 
 ```text
-pulse://YOUR_SERVER_IP:9191#YOUR_GENERATED_TOKEN
+http://YOUR_SERVER_IP:9191/#YOUR_GENERATED_TOKEN     <- instant web dashboard (no install, works on phones)
+pulse://YOUR_SERVER_IP:9191#YOUR_GENERATED_TOKEN     <- Chrome extension quick-connect
 ```
 
-### 2. Install & Connect the Chrome Extension (1 paste)
+### 2. Open the Dashboard (1 click)
+
+Click the `http://...#TOKEN` link. The token is saved in the browser's `localStorage` and immediately stripped from the address bar.
+
+### 3. Optional: Chrome Extension for the Live Toolbar Badge
 
 1. Download **`server-pulse-extension.zip`** from the [Latest Release](https://github.com/Man30ur/server-pulse/releases/latest) and unzip it.
 2. Open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and select the unzipped folder.
@@ -36,7 +41,7 @@ Done! Both the extension and your credentials stay saved permanently in `chrome.
 * **Read-Only Access:** Docker socket is mounted `:ro` and the agent only issues HTTP `GET` requests. No exec, restart, or mutation endpoints exist.
 * **Minimal Host Exposure:** Mounts only `/var/run/docker.sock:ro`, `/proc:/host/proc:ro`, and `/etc/hostname:/host/hostname:ro` (never mounts host `/`), with `read_only: true`, `cap_drop: [ALL]`, `no-new-privileges:true`, and `mem_limit: 32m`.
 * **Timing-Safe Auth:** Every `/api/*` request requires `Authorization: Bearer <PULSE_TOKEN>` verified with `crypto/subtle.ConstantTimeCompare`.
-* **Strict MV3 CSP:** Zero inline scripts, zero `eval`, zero `innerHTML`; CORS restricted to `chrome-extension://`.
+* **Strict CSP everywhere:** Zero inline scripts, zero `eval`, zero `innerHTML` in both the extension and the embedded web dashboard (served with `script-src 'self'`); CORS restricted to `chrome-extension://`. The dashboard's static files are public, but all data stays behind the Bearer-protected `/api/metrics`.
 
 ---
 

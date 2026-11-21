@@ -1,12 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EXT_DIR = path.resolve(__dirname, '../extension');
+
+test('embedded web dashboard obeys strict CSP (no inline script/handlers/eval/innerHTML)', () => {
+  const webDir = path.resolve(__dirname, '../agent/web');
+  const html = fs.readFileSync(path.join(webDir, 'index.html'), 'utf8');
+  assert.ok(!/<script(?![^>]*\bsrc=)/i.test(html), 'inline <script> in web/index.html');
+  assert.ok(!/\son[a-z]+\s*=/i.test(html), 'inline handler in web/index.html');
+  assert.ok(!/<style/i.test(html), 'inline <style> in web/index.html');
+  const js = fs.readFileSync(path.join(webDir, 'app.js'), 'utf8');
+  assert.ok(!/\beval\s*\(/.test(js) && !/\.innerHTML\b/.test(js) && !/\bnew\s+Function\b/.test(js));
+  execFileSync(process.execPath, ['--check', path.join(webDir, 'app.js')]);
+});
 
 test('manifest.json is valid Manifest V3 with minimal permissions and icons', () => {
   const raw = fs.readFileSync(path.join(EXT_DIR, 'manifest.json'), 'utf8');

@@ -99,8 +99,8 @@ PULSE_PORT="$(awk -F= '/^PULSE_PORT=/{print $2}' "$ENV_FILE" | tr -d '[:space:]'
 PULSE_PORT="${PULSE_PORT:-9191}"
 PULSE_TOKEN="$(awk -F= '/^PULSE_TOKEN=/{print $2}' "$ENV_FILE" | tr -d '[:space:]')"
 
-echo "[server-pulse] Building and starting read-only container..."
-(cd "${ROOT_DIR}/deploy" && docker compose up -d --build)
+echo "[server-pulse] Pulling prebuilt image (falls back to local build if unavailable)..."
+(cd "${ROOT_DIR}/deploy" && { docker compose pull --quiet 2>/dev/null || echo "[server-pulse] Prebuilt image unavailable, building locally."; } && docker compose up -d)
 
 echo -n "[server-pulse] Waiting for healthcheck"
 for _ in $(seq 1 20); do
@@ -117,10 +117,15 @@ cat <<EOF
 
 ====================================================================
  Server-Pulse is running!
- Paste this single Quick-Connect link into the Chrome extension:
+
+ 1) Instant web dashboard (no install, works on phones too):
+
+   http://${SERVER_IP}:${PULSE_PORT}/#${PULSE_TOKEN}
+
+ 2) Chrome extension (live toolbar badge) - paste this link in it:
 
    pulse://${SERVER_IP}:${PULSE_PORT}#${PULSE_TOKEN}
 
- Keep this link private (it contains your Bearer token).
+ Keep these links private (they contain your Bearer token).
 ====================================================================
 EOF

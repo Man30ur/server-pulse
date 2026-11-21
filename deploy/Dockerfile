@@ -2,6 +2,7 @@ FROM golang:1.22-alpine AS builder
 WORKDIR /src
 COPY agent/go.mod ./
 COPY agent/*.go ./
+COPY agent/web ./web
 RUN CGO_ENABLED=0 GOOS=linux go build -buildvcs=false -trimpath -ldflags="-s -w" -o /out/server-pulse . \
     && mkdir -p /rootfs/host/proc /rootfs/var/run \
     && touch /rootfs/host/hostname

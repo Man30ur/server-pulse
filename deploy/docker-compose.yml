@@ -1,5 +1,6 @@
 services:
   server-pulse:
+    image: ghcr.io/man30ur/server-pulse:latest
     build:
       context: ..
       dockerfile: deploy/Dockerfile

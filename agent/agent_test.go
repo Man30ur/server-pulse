@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -124,6 +125,40 @@ func TestMetricsCacheSingleFlightAndTTL(t *testing.T) {
 	}
 	if calls.Load() != 1 {
 		t.Fatalf("expected cached hit, got %d calls", calls.Load())
+	}
+}
+
+func TestWebUIServedWithoutAuthAndStrictCSP(t *testing.T) {
+	cfg := Config{Token: "tok-xyz", CacheTTL: time.Second, Hostname: "test-host"}
+	h := NewHandler(cfg, NewSysCollector(t.TempDir(), "/", 6), NewDockerCollector(""))
+
+	for path, ctype := range map[string]string{
+		"/":        "text/html",
+		"/app.css": "text/css",
+		"/app.js":  "application/javascript",
+	} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), ctype) {
+			t.Fatalf("%s: code=%d type=%q", path, rec.Code, rec.Header().Get("Content-Type"))
+		}
+		if !strings.Contains(rec.Header().Get("Content-Security-Policy"), "script-src 'self'") {
+			t.Fatalf("%s: missing strict CSP", path)
+		}
+		if rec.Body.Len() == 0 {
+			t.Fatalf("%s: empty body", path)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/nope", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown path, got %d", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/metrics", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("API must stay protected, got %d", rec.Code)
 	}
 }
 
