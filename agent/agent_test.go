@@ -136,6 +136,7 @@ func TestWebUIServedWithoutAuthAndStrictCSP(t *testing.T) {
 		"/":        "text/html",
 		"/app.css": "text/css",
 		"/app.js":  "application/javascript",
+		"/view.js": "application/javascript",
 	} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))

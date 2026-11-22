@@ -16,8 +16,36 @@ type MetricsPayload struct {
 	CPU        CPUMetric         `json:"cpu"`
 	Memory     MemoryMetric      `json:"memory"`
 	Disk       DiskMetric        `json:"disk"`
+	Load       [3]float64        `json:"load"`
+	Network    NetMetric         `json:"network"`
+	DiskIO     DiskIOMetric      `json:"disk_io"`
 	Containers []ContainerMetric `json:"containers"`
 	Processes  []ProcessMetric   `json:"processes"`
+}
+
+// NetMetric is host network throughput (bytes/sec) excluding loopback and Docker bridges.
+type NetMetric struct {
+	RxBps float64 `json:"rx_bps"`
+	TxBps float64 `json:"tx_bps"`
+}
+
+// DiskIOMetric is host block-device throughput (bytes/sec) across whole disks.
+type DiskIOMetric struct {
+	ReadBps  float64 `json:"read_bps"`
+	WriteBps float64 `json:"write_bps"`
+}
+
+// HostSnapshot groups all host-level readings produced by SysCollector.Collect.
+type HostSnapshot struct {
+	UptimeSec     int64
+	CPU           CPUMetric
+	Memory        MemoryMetric
+	MemTotalBytes uint64
+	Disk          DiskMetric
+	Load          [3]float64
+	Network       NetMetric
+	DiskIO        DiskIOMetric
+	Processes     []ProcessMetric
 }
 
 type CPUMetric struct {
@@ -43,6 +71,8 @@ type ContainerMetric struct {
 	ID         string  `json:"id"`
 	Name       string  `json:"name"`
 	State      string  `json:"state"`
+	Status     string  `json:"status"`
+	Health     string  `json:"health"`
 	CPUPercent float64 `json:"cpu_percent"`
 	MemMB      float64 `json:"mem_mb"`
 	MemPercent float64 `json:"mem_percent"`

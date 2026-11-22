@@ -102,21 +102,25 @@ func withSecurityAndCORS(next http.Handler) http.Handler {
 
 func NewHandler(cfg Config, sys *SysCollector, docker *DockerCollector) http.Handler {
 	cache := NewMetricsCache(cfg.CacheTTL, func(ctx context.Context) ([]byte, error) {
-		uptime, cpu, mem, memTotalBytes, disk, procs := sys.Collect()
-		containers := docker.Collect(ctx, memTotalBytes)
+		host := sys.Collect()
+		containers := docker.Collect(ctx, host.MemTotalBytes)
 		if containers == nil {
 			containers = []ContainerMetric{}
 		}
+		procs := host.Processes
 		if procs == nil {
 			procs = []ProcessMetric{}
 		}
 		payload := MetricsPayload{
 			Timestamp:  time.Now().Unix(),
 			Hostname:   cfg.Hostname,
-			UptimeSec:  uptime,
-			CPU:        cpu,
-			Memory:     mem,
-			Disk:       disk,
+			UptimeSec:  host.UptimeSec,
+			CPU:        host.CPU,
+			Memory:     host.Memory,
+			Disk:       host.Disk,
+			Load:       host.Load,
+			Network:    host.Network,
+			DiskIO:     host.DiskIO,
 			Containers: containers,
 			Processes:  procs,
 		}

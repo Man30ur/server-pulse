@@ -1,75 +1,53 @@
 import { STORAGE_KEYS, fetchMetrics, getConfig, parseConnectionInput, saveConfig } from './api.js';
-import { renderContainers, renderProcesses, renderSummary } from './render.js';
+import { SORT_KEYS, pushHistory, renderContainers, renderHostSub, renderProcesses, renderSummary } from './view.js';
 
 const POLL_MS = 3000;
+const SORT_LABEL = { ram: 'RAM', cpu: 'CPU', name: 'A–Z' };
 const $ = (id) => document.getElementById(id);
-
-const refs = {
-  statusDot: $('statusDot'),
-  hostName: $('hostName'),
-  hostSub: $('hostSub'),
-  refreshBtn: $('refreshBtn'),
-  settingsBtn: $('settingsBtn'),
-  errorBanner: $('errorBanner'),
-  dashboardView: $('dashboardView'),
-  settingsView: $('settingsView'),
-  cpuVal: $('cpuVal'),
-  cpuSub: $('cpuSub'),
-  cpuBar: $('cpuBar'),
-  ramVal: $('ramVal'),
-  ramSub: $('ramSub'),
-  ramBar: $('ramBar'),
-  diskVal: $('diskVal'),
-  diskSub: $('diskSub'),
-  diskBar: $('diskBar'),
-  containerCount: $('containerCount'),
-  containerList: $('containerList'),
-  procToggle: $('procToggle'),
-  procCount: $('procCount'),
-  procChevron: $('procChevron'),
-  procList: $('procList'),
-  settingsForm: $('settingsForm'),
-  inputUrl: $('inputUrl'),
-  inputToken: $('inputToken'),
-  toggleTokenBtn: $('toggleTokenBtn'),
-  settingsStatus: $('settingsStatus'),
-  cancelBtn: $('cancelBtn'),
-  saveBtn: $('saveBtn'),
-};
+const ids = ['statusDot', 'hostName', 'hostSub', 'refreshBtn', 'settingsBtn', 'errorBanner', 'dashboardView',
+  'settingsView', 'cpuVal', 'cpuSub', 'cpuBar', 'cpuSpark', 'ramVal', 'ramSub', 'ramBar', 'ramSpark', 'swapNote',
+  'diskVal', 'diskSub', 'diskBar', 'details', 'loadVal', 'netVal', 'ioVal', 'containerCount', 'issues', 'sortBtn',
+  'containerList', 'procToggle', 'procCount', 'procChevron', 'procList', 'settingsForm', 'inputUrl', 'inputToken',
+  'toggleTokenBtn', 'settingsStatus', 'cancelBtn', 'saveBtn'];
+const refs = Object.fromEntries(ids.map((id) => [id, $(id)]));
 
 let pollTimer = null;
 let inSettings = false;
 let currentConfig = { serverUrl: '', apiToken: '', badgeMetric: 'ram' };
+const view = { data: null, lastOkAt: 0, offline: false, hist: { cpu: [], ram: [] }, sortKey: 'ram', expanded: new Set() };
 
 function setConnectionState(state, message = '') {
   refs.statusDot.className = `dot ${state === 'ok' ? 'dot-ok' : state === 'err' ? 'dot-err' : 'dot-idle'}`;
-  if (message) {
-    refs.errorBanner.textContent = message;
-    refs.errorBanner.classList.remove('hidden');
-  } else {
-    refs.errorBanner.classList.add('hidden');
-    refs.errorBanner.textContent = '';
-  }
+  refs.errorBanner.textContent = message;
+  refs.errorBanner.classList.toggle('hidden', !message);
+  refs.dashboardView.classList.toggle('stale', state === 'err' && Boolean(view.data));
 }
 
 function errorLabel(code) {
   if (code === 'UNAUTHORIZED') return 'Authentication failed (401) — check Bearer token.';
-  if (code === 'TIMEOUT') return 'Request timed out (3s) — server unreachable.';
+  if (code === 'TIMEOUT') return 'Request timed out (3s) — showing last known data.';
   if (code === 'NOT_CONFIGURED') return 'Configure Server URL and Bearer token.';
-  return 'Server offline or unreachable.';
+  return 'Server offline or unreachable — showing last known data.';
 }
 
-function applySnapshot(data) {
-  renderSummary(refs, data);
-  renderContainers(refs.containerList, refs.containerCount, data.containers);
-  renderProcesses(refs.procList, refs.procCount, data.processes);
+function renderAll() {
+  if (!view.data) return;
+  renderSummary(refs, view.data, view.hist);
+  renderContainers(refs, view.data.containers, { sortKey: view.sortKey, expanded: view.expanded });
+  renderProcesses(refs, view.data.processes);
+  renderHostSub(refs, view.data, view.lastOkAt, view.offline);
+}
+
+async function applySnapshot(data, lastOkAt = Date.now(), record = false) {
+  view.data = data;
+  view.lastOkAt = lastOkAt;
+  view.offline = false;
+  if (record) pushHistory(view.hist, data);
+  renderAll();
 }
 
 function stopPolling() {
-  if (pollTimer !== null) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
+  if (pollTimer !== null) { clearInterval(pollTimer); pollTimer = null; }
 }
 
 function startPolling() {
@@ -84,13 +62,16 @@ async function refresh(showSpin = true) {
   if (showSpin) refs.refreshBtn.classList.add('spinning');
   try {
     const data = await fetchMetrics(currentConfig.serverUrl, currentConfig.apiToken, 3000);
-    applySnapshot(data);
+    const now = Date.now();
+    await applySnapshot(data, now, true);
     setConnectionState('ok');
-    await chrome.storage.local.set({ [STORAGE_KEYS.LAST_SNAPSHOT]: data, [STORAGE_KEYS.LAST_ERROR]: '' });
+    await chrome.storage.local.set({ [STORAGE_KEYS.LAST_SNAPSHOT]: data, [STORAGE_KEYS.LAST_OK_AT]: now, [STORAGE_KEYS.LAST_ERROR]: '' });
     chrome.runtime.sendMessage({ type: 'syncBadge', data, badgeMetric: currentConfig.badgeMetric }).catch(() => {});
   } catch (err) {
     const code = err?.message || 'OFFLINE';
+    view.offline = true;
     setConnectionState('err', errorLabel(code));
+    renderHostSub(refs, view.data, view.lastOkAt, true);
     chrome.runtime.sendMessage({ type: 'badgeError', code }).catch(() => {});
   } finally {
     refs.refreshBtn.classList.remove('spinning');
@@ -104,7 +85,6 @@ function showSettings(open) {
   refs.settingsBtn.classList.toggle('active', open);
   refs.settingsStatus.textContent = '';
   refs.settingsStatus.className = 'settings-status';
-
   if (open) {
     stopPolling();
     refs.errorBanner.classList.add('hidden');
@@ -123,6 +103,13 @@ refs.cancelBtn.addEventListener('click', () => showSettings(false));
 refs.refreshBtn.addEventListener('click', () => {
   if (inSettings) showSettings(false);
   refresh(true);
+});
+
+refs.sortBtn.addEventListener('click', () => {
+  view.sortKey = SORT_KEYS[(SORT_KEYS.indexOf(view.sortKey) + 1) % SORT_KEYS.length];
+  refs.sortBtn.textContent = SORT_LABEL[view.sortKey];
+  chrome.storage.local.set({ [STORAGE_KEYS.SORT_KEY]: view.sortKey });
+  renderAll();
 });
 
 refs.procToggle.addEventListener('click', () => {
@@ -170,8 +157,9 @@ refs.settingsForm.addEventListener('submit', async (ev) => {
     const data = await fetchMetrics(serverUrl, apiToken, 3000);
     await saveConfig({ serverUrl, apiToken, badgeMetric });
     currentConfig = { serverUrl, apiToken, badgeMetric };
-    await chrome.storage.local.set({ [STORAGE_KEYS.LAST_SNAPSHOT]: data, [STORAGE_KEYS.LAST_ERROR]: '' });
-    applySnapshot(data);
+    const now = Date.now();
+    await chrome.storage.local.set({ [STORAGE_KEYS.LAST_SNAPSHOT]: data, [STORAGE_KEYS.LAST_OK_AT]: now, [STORAGE_KEYS.LAST_ERROR]: '' });
+    await applySnapshot(data, now);
     setConnectionState('ok');
     chrome.runtime.sendMessage({ type: 'syncBadge', data, badgeMetric }).catch(() => {});
     showSettings(false);
@@ -183,21 +171,35 @@ refs.settingsForm.addEventListener('submit', async (ev) => {
   }
 });
 
+// The background worker owns the trend history (one sample per alarm, ~15 min window).
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes[STORAGE_KEYS.HISTORY]?.newValue) {
+    view.hist = changes[STORAGE_KEYS.HISTORY].newValue;
+    renderAll();
+  }
+});
+
 window.addEventListener('pagehide', stopPolling);
-window.addEventListener('unload', stopPolling);
+setInterval(() => renderHostSub(refs, view.data, view.lastOkAt, view.offline), 5000);
 
 async function init() {
   currentConfig = await getConfig();
-  const cached = await chrome.storage.local.get([STORAGE_KEYS.LAST_SNAPSHOT, STORAGE_KEYS.LAST_ERROR]);
+  const cached = await chrome.storage.local.get([STORAGE_KEYS.LAST_SNAPSHOT, STORAGE_KEYS.LAST_OK_AT,
+    STORAGE_KEYS.LAST_ERROR, STORAGE_KEYS.HISTORY, STORAGE_KEYS.SORT_KEY]);
+  if (SORT_KEYS.includes(cached[STORAGE_KEYS.SORT_KEY])) view.sortKey = cached[STORAGE_KEYS.SORT_KEY];
+  refs.sortBtn.textContent = SORT_LABEL[view.sortKey];
+  if (cached[STORAGE_KEYS.HISTORY]?.cpu) view.hist = cached[STORAGE_KEYS.HISTORY];
 
   if (!currentConfig.serverUrl || !currentConfig.apiToken) {
     showSettings(true);
     return;
   }
 
-  if (cached[STORAGE_KEYS.LAST_SNAPSHOT]) {
-    applySnapshot(cached[STORAGE_KEYS.LAST_SNAPSHOT]);
-    setConnectionState(cached[STORAGE_KEYS.LAST_ERROR] ? 'err' : 'ok', cached[STORAGE_KEYS.LAST_ERROR] ? errorLabel(cached[STORAGE_KEYS.LAST_ERROR]) : '');
+  const snap = cached[STORAGE_KEYS.LAST_SNAPSHOT];
+  if (snap) {
+    await applySnapshot(snap, Number(cached[STORAGE_KEYS.LAST_OK_AT]) || (snap.timestamp || 0) * 1000);
+    const lastErr = cached[STORAGE_KEYS.LAST_ERROR];
+    setConnectionState(lastErr ? 'err' : 'ok', lastErr ? errorLabel(lastErr) : '');
   }
 
   await refresh(false);

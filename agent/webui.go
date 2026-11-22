@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-//go:embed web/index.html web/app.css web/app.js
+//go:embed web/index.html web/app.css web/app.js web/view.js
 var webAssets embed.FS
 
 const webCSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'"
@@ -26,4 +26,5 @@ func registerWebUI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", serveAsset("web/index.html", "text/html; charset=utf-8"))
 	mux.HandleFunc("GET /app.css", serveAsset("web/app.css", "text/css; charset=utf-8"))
 	mux.HandleFunc("GET /app.js", serveAsset("web/app.js", "application/javascript; charset=utf-8"))
+	mux.HandleFunc("GET /view.js", serveAsset("web/view.js", "application/javascript; charset=utf-8"))
 }

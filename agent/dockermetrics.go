@@ -14,9 +14,24 @@ import (
 )
 
 type dockerContainer struct {
-	ID    string   `json:"Id"`
-	Names []string `json:"Names"`
-	State string   `json:"State"`
+	ID     string   `json:"Id"`
+	Names  []string `json:"Names"`
+	State  string   `json:"State"`
+	Status string   `json:"Status"`
+}
+
+// healthFromStatus extracts Docker's healthcheck state from the human status, e.g. "Up 3 hours (healthy)".
+func healthFromStatus(status string) string {
+	s := strings.ToLower(status)
+	switch {
+	case strings.Contains(s, "(unhealthy)"):
+		return "unhealthy"
+	case strings.Contains(s, "health: starting"):
+		return "starting"
+	case strings.Contains(s, "(healthy)"):
+		return "healthy"
+	}
+	return ""
 }
 
 type dockerCPUStats struct {
@@ -101,7 +116,7 @@ func (d *DockerCollector) Collect(ctx context.Context, hostMemBytes uint64) []Co
 			name = strings.TrimPrefix(c.Names[0], "/")
 		}
 		state := strings.ToLower(c.State)
-		results[i] = ContainerMetric{ID: shortID, Name: name, State: state}
+		results[i] = ContainerMetric{ID: shortID, Name: name, State: state, Status: c.Status, Health: healthFromStatus(c.Status)}
 		if state == "running" {
 			activeIDs[c.ID] = struct{}{}
 			jobs <- job{idx: i, id: c.ID}

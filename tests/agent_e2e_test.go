@@ -36,10 +36,21 @@ type metricsResp struct {
 		TotalGB float64 `json:"total_gb"`
 		Percent float64 `json:"percent"`
 	} `json:"disk"`
+	Load    [3]float64 `json:"load"`
+	Network struct {
+		RxBps float64 `json:"rx_bps"`
+		TxBps float64 `json:"tx_bps"`
+	} `json:"network"`
+	DiskIO struct {
+		ReadBps  float64 `json:"read_bps"`
+		WriteBps float64 `json:"write_bps"`
+	} `json:"disk_io"`
 	Containers []struct {
 		ID         string  `json:"id"`
 		Name       string  `json:"name"`
 		State      string  `json:"state"`
+		Status     string  `json:"status"`
+		Health     string  `json:"health"`
 		CPUPercent float64 `json:"cpu_percent"`
 		MemMB      float64 `json:"mem_mb"`
 		MemPercent float64 `json:"mem_percent"`
@@ -62,8 +73,8 @@ func startMockDocker(t *testing.T, sockPath string, listHits *atomic.Int32) {
 	mux.HandleFunc("/containers/json", func(w http.ResponseWriter, _ *http.Request) {
 		listHits.Add(1)
 		_, _ = w.Write([]byte(`[
-			{"Id":"8c83357c95e6abcdef","Names":["/front-stox"],"State":"running"},
-			{"Id":"111122223333444455","Names":["/old-job"],"State":"exited"}
+			{"Id":"8c83357c95e6abcdef","Names":["/front-stox"],"State":"running","Status":"Up 3 hours (healthy)"},
+			{"Id":"111122223333444455","Names":["/old-job"],"State":"exited","Status":"Exited (0) 2 hours ago"}
 		]`))
 	})
 	mux.HandleFunc("/containers/8c83357c95e6abcdef/stats", func(w http.ResponseWriter, _ *http.Request) {
@@ -93,6 +104,7 @@ func setupMockProc(t *testing.T) string {
 	mustWrite("stat", "cpu  200 0 100 700 0 0 0 0 0 0\ncpu0 100 0 50 350 0 0 0 0 0 0\ncpu1 100 0 50 350 0 0 0 0 0 0\n")
 	mustWrite("meminfo", "MemTotal:       16384000 kB\nMemAvailable:    8192000 kB\nSwapTotal:       8388608 kB\nSwapFree:        8388608 kB\n")
 	mustWrite("uptime", "86400.42 12345.00\n")
+	mustWrite("loadavg", "0.75 0.50 0.25 1/120 42\n")
 	mustWrite("1245/stat", "1245 (java) S 1 1 1 0 -1 0 0 0 0 0 50 10 0 0 20 0 1 0 100 0 131072 0\n")
 	mustWrite("1245/cgroup", "0::/system.slice/java.service\n")
 	mustWrite("2001/stat", "2001 (node) S 1 1 1 0 -1 0 0 0 0 0 10 5 0 0 20 0 1 0 100 0 65536 0\n")
@@ -229,8 +241,11 @@ func TestAgentEndToEnd(t *testing.T) {
 	if first.Memory.TotalMB != 16000 || first.Memory.UsedMB != 8000 || first.Disk.TotalGB <= 0 {
 		t.Fatalf("unexpected mem/disk: %+v", first)
 	}
-	if len(first.Containers) != 2 || first.Containers[0].Name != "front-stox" || first.Containers[0].MemMB != 400.0 || first.Containers[0].CPUPercent != 10.0 {
+	if len(first.Containers) != 2 || first.Containers[0].Name != "front-stox" || first.Containers[0].MemMB != 400.0 || first.Containers[0].CPUPercent != 10.0 || first.Containers[0].Health != "healthy" {
 		t.Fatalf("unexpected containers: %+v", first.Containers)
+	}
+	if first.Load[0] != 0.75 {
+		t.Fatalf("expected load[0]=0.75, got %v", first.Load)
 	}
 	if len(first.Processes) != 1 || first.Processes[0].Name != "java" {
 		t.Fatalf("expected only non-container proc java, got: %+v", first.Processes)

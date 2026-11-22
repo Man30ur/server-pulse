@@ -5,7 +5,10 @@ export const STORAGE_KEYS = {
   API_TOKEN: 'apiToken',
   BADGE_METRIC: 'badgeMetric',
   LAST_SNAPSHOT: 'lastSnapshot',
+  LAST_OK_AT: 'lastOkAt',
   LAST_ERROR: 'lastError',
+  HISTORY: 'history',
+  SORT_KEY: 'sortKey',
 };
 
 export const COLORS = {

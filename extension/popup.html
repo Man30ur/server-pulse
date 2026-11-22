@@ -36,36 +36,40 @@
 
     <main id="dashboardView" class="view">
       <section class="summary" aria-label="System summary">
-        <div class="pill">
-          <div class="pill-head">
-            <span class="pill-label">CPU</span>
-            <span id="cpuSub" class="pill-sub num">--</span>
-          </div>
+        <div class="pill" title="CPU usage (trend: recent samples)">
+          <div class="pill-head"><span class="pill-label">CPU</span><span id="cpuSub" class="pill-sub num">--</span></div>
           <div id="cpuVal" class="pill-val num">--%</div>
+          <svg id="cpuSpark" class="spark-svg" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true"></svg>
           <div class="bar"><div id="cpuBar" class="bar-fill"></div></div>
         </div>
-        <div class="pill">
-          <div class="pill-head">
-            <span class="pill-label">RAM</span>
-            <span id="ramSub" class="pill-sub num">--</span>
-          </div>
+        <div class="pill" title="Memory in use (excluding reclaimable cache)">
+          <div class="pill-head"><span class="pill-label">RAM</span><span id="ramSub" class="pill-sub num">--</span></div>
           <div id="ramVal" class="pill-val num">--%</div>
+          <svg id="ramSpark" class="spark-svg" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <span id="swapNote" class="pill-note num hidden"></span>
           <div class="bar"><div id="ramBar" class="bar-fill"></div></div>
         </div>
-        <div class="pill">
-          <div class="pill-head">
-            <span class="pill-label">DISK</span>
-            <span id="diskSub" class="pill-sub num">--</span>
-          </div>
+        <div class="pill" title="Root filesystem usage">
+          <div class="pill-head"><span class="pill-label">DISK</span><span id="diskSub" class="pill-sub num">--</span></div>
           <div id="diskVal" class="pill-val num">--%</div>
           <div class="bar"><div id="diskBar" class="bar-fill"></div></div>
         </div>
       </section>
 
+      <section id="details" class="details hidden" aria-label="Load, network and disk activity">
+        <div class="detail"><span class="detail-label">LOAD</span><span id="loadVal" class="detail-val num">--</span></div>
+        <div class="detail"><span class="detail-label">NET /s</span><span id="netVal" class="detail-val num">--</span></div>
+        <div class="detail"><span class="detail-label">DISK /s</span><span id="ioVal" class="detail-val num">--</span></div>
+      </section>
+
       <section class="section">
         <div class="section-head">
-          <span class="section-title">CONTAINERS</span>
-          <span id="containerCount" class="section-count num">0</span>
+          <span class="section-left">
+            <span class="section-title">CONTAINERS</span>
+            <span id="containerCount" class="section-count num">0</span>
+            <span id="issues" class="issues hidden"></span>
+          </span>
+          <button id="sortBtn" class="chip" type="button" title="Change sort order">RAM</button>
         </div>
         <div id="containerList" class="list"></div>
       </section>

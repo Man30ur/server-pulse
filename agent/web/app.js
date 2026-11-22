@@ -1,256 +1,174 @@
-(() => {
-  'use strict';
+import {
+  SORT_KEYS, pushHistory, renderContainers, renderHostSub, renderProcesses, renderSummary,
+} from './view.js';
 
-  const TOKEN_KEY = 'server_pulse_token';
-  const POLL_MS = 3000;
-  const $ = (id) => document.getElementById(id);
+const TOKEN_KEY = 'server_pulse_token';
+const SORT_KEY = 'server_pulse_sort';
+const POLL_MS = 3000;
+const $ = (id) => document.getElementById(id);
+const ids = ['statusDot', 'hostName', 'hostSub', 'refreshBtn', 'authBtn', 'errorBanner', 'dashboardView',
+  'authView', 'cpuVal', 'cpuSub', 'cpuBar', 'cpuSpark', 'ramVal', 'ramSub', 'ramBar', 'ramSpark', 'swapNote',
+  'diskVal', 'diskSub', 'diskBar', 'details', 'loadVal', 'netVal', 'ioVal', 'containerCount', 'issues',
+  'sortBtn', 'containerList', 'procToggle', 'procCount', 'procChevron', 'procList', 'authForm', 'tokenInput',
+  'authStatus', 'clearTokenBtn', 'connectBtn'];
+const refs = Object.fromEntries(ids.map((id) => [id, $(id)]));
 
-  const refs = {
-    statusDot: $('statusDot'), hostName: $('hostName'), hostSub: $('hostSub'),
-    refreshBtn: $('refreshBtn'), authBtn: $('authBtn'), errorBanner: $('errorBanner'),
-    dashboardView: $('dashboardView'), authView: $('authView'),
-    cpuVal: $('cpuVal'), cpuSub: $('cpuSub'), cpuBar: $('cpuBar'),
-    ramVal: $('ramVal'), ramSub: $('ramSub'), ramBar: $('ramBar'),
-    diskVal: $('diskVal'), diskSub: $('diskSub'), diskBar: $('diskBar'),
-    containerCount: $('containerCount'), containerList: $('containerList'),
-    procToggle: $('procToggle'), procCount: $('procCount'),
-    procChevron: $('procChevron'), procList: $('procList'),
-    authForm: $('authForm'), tokenInput: $('tokenInput'),
-    authStatus: $('authStatus'), clearTokenBtn: $('clearTokenBtn'), connectBtn: $('connectBtn'),
-  };
+const state = {
+  token: '',
+  data: null,
+  lastOkAt: 0,
+  offline: false,
+  inAuth: false,
+  pollTimer: null,
+  hist: { cpu: [], ram: [] },
+  sortKey: SORT_KEYS.includes(localStorage.getItem(SORT_KEY)) ? localStorage.getItem(SORT_KEY) : 'ram',
+  expanded: new Set(),
+};
+const SORT_LABEL = { ram: 'RAM', cpu: 'CPU', name: 'A–Z' };
 
-  let token = '';
-  let pollTimer = null;
-  let inAuth = false;
+function setStatus(kind, msg = '') {
+  refs.statusDot.className = `dot ${kind === 'ok' ? 'dot-ok' : kind === 'err' ? 'dot-err' : 'dot-idle'}`;
+  refs.errorBanner.textContent = msg;
+  refs.errorBanner.classList.toggle('hidden', !msg);
+  refs.dashboardView.classList.toggle('stale', kind === 'err' && Boolean(state.data));
+}
 
-  const el = (tag, cls, text) => {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text !== undefined) n.textContent = text;
-    return n;
-  };
+function renderAll() {
+  const d = state.data;
+  if (!d) return;
+  document.title = `${d.hostname || 'Server-Pulse'} · CPU ${Math.round(d.cpu?.percent || 0)}% · RAM ${Math.round(d.memory?.percent || 0)}%`;
+  renderSummary(refs, d, state.hist);
+  renderContainers(refs, d.containers, { sortKey: state.sortKey, expanded: state.expanded });
+  renderProcesses(refs, d.processes);
+  renderHostSub(refs, d, state.lastOkAt, state.offline);
+}
 
-  const levelClass = (p) => (p >= 85 ? 'lvl-red' : p >= 65 ? 'lvl-amber' : 'lvl-green');
-  const formatMem = (mb) => (mb >= 1024 ? `${(mb / 1024).toFixed(1)}G` : `${Math.round(mb || 0)}M`);
-  const formatUptime = (sec) => {
-    const t = Math.max(0, Math.floor(sec || 0));
-    const d = Math.floor(t / 86400);
-    const h = Math.floor((t % 86400) / 3600);
-    const m = Math.floor((t % 3600) / 60);
-    return d > 0 ? `up ${d}d ${h}h` : h > 0 ? `up ${h}h ${m}m` : `up ${m}m`;
-  };
+async function fetchMetrics(tok) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 3000);
+  try {
+    const res = await fetch('/api/metrics', { headers: { Authorization: `Bearer ${tok}` }, cache: 'no-store', signal: ctrl.signal });
+    if (res.status === 401) throw new Error('UNAUTHORIZED');
+    if (!res.ok) throw new Error(`HTTP_${res.status}`);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
-  const setBar = (node, pct) => {
-    const v = Math.max(0, Math.min(100, Number(pct) || 0));
-    node.style.width = `${v}%`;
-    node.className = `bar-fill ${levelClass(v)}`;
-  };
+function stopPoll() {
+  if (state.pollTimer !== null) { clearInterval(state.pollTimer); state.pollTimer = null; }
+}
 
-  const setBanner = (state, msg) => {
-    refs.statusDot.className = `dot ${state === 'ok' ? 'dot-ok' : state === 'err' ? 'dot-err' : 'dot-idle'}`;
-    refs.errorBanner.textContent = msg || '';
-    refs.errorBanner.classList.toggle('hidden', !msg);
-  };
+function startPoll() {
+  stopPoll();
+  if (!state.inAuth && state.token && !document.hidden) {
+    state.pollTimer = setInterval(() => { refresh(false); }, POLL_MS);
+  }
+}
 
-  function renderData(d) {
-    const cpu = Number(d.cpu?.percent || 0);
-    const ram = Number(d.memory?.percent || 0);
-    const disk = Number(d.disk?.percent || 0);
-    document.title = `${d.hostname || 'Server-Pulse'} · RAM ${Math.round(ram)}%`;
-    refs.hostName.textContent = d.hostname || 'server';
-    const swap = d.memory?.swap_used_mb > 0 ? ` · swap ${formatMem(d.memory.swap_used_mb)}` : '';
-    refs.hostSub.textContent = `${formatUptime(d.uptime_sec)}${swap}`;
+function showAuth(open, msg = '') {
+  state.inAuth = open;
+  refs.authView.classList.toggle('hidden', !open);
+  refs.dashboardView.classList.toggle('hidden', open);
+  refs.authBtn.classList.toggle('active', open);
+  refs.authStatus.textContent = msg;
+  refs.authStatus.className = msg ? 'status-msg err' : 'status-msg';
+  refs.clearTokenBtn.classList.toggle('hidden', !state.token);
+  if (open) { stopPoll(); refs.tokenInput.value = ''; refs.tokenInput.focus(); } else { startPoll(); }
+}
 
-    refs.cpuVal.textContent = `${cpu.toFixed(1)}%`;
-    refs.cpuSub.textContent = `${d.cpu?.cores || 0}c`;
-    setBar(refs.cpuBar, cpu);
+function accept(data) {
+  state.data = data;
+  state.lastOkAt = Date.now();
+  state.offline = false;
+  pushHistory(state.hist, data);
+  setStatus('ok');
+  renderAll();
+}
 
-    refs.ramVal.textContent = `${ram.toFixed(1)}%`;
-    refs.ramSub.textContent = `${formatMem(d.memory?.used_mb)}/${formatMem(d.memory?.total_mb)}`;
-    setBar(refs.ramBar, ram);
-
-    refs.diskVal.textContent = `${disk.toFixed(1)}%`;
-    refs.diskSub.textContent = `${Number(d.disk?.used_gb || 0).toFixed(0)}/${Number(d.disk?.total_gb || 0).toFixed(0)}G`;
-    setBar(refs.diskBar, disk);
-
-    const containers = Array.isArray(d.containers) ? [...d.containers].sort((a, b) => (b.mem_mb || 0) - (a.mem_mb || 0)) : [];
-    const running = containers.filter((c) => c.state === 'running').length;
-    refs.containerCount.textContent = containers.length ? `${running}/${containers.length}` : '0';
-
-    const cFrag = document.createDocumentFragment();
-    if (!containers.length) {
-      cFrag.appendChild(el('div', 'empty', 'No containers detected'));
+async function refresh(spin = true) {
+  if (!state.token) return;
+  if (spin) refs.refreshBtn.classList.add('spinning');
+  try {
+    accept(await fetchMetrics(state.token));
+  } catch (err) {
+    if (err?.message === 'UNAUTHORIZED') {
+      setStatus('err');
+      showAuth(true, 'Invalid Bearer token (401).');
     } else {
-      for (const c of containers) {
-        const up = c.state === 'running';
-        const row = el('div', up ? 'row' : 'row row-stopped');
-        const top = el('div', 'row-top');
-        const left = el('div', 'row-left');
-        left.appendChild(el('span', `dot ${up ? 'dot-ok' : 'dot-idle'}`));
-        left.appendChild(el('span', 'row-name', c.name || c.id));
-        const stats = el('div', 'row-stats num');
-        if (up) {
-          stats.appendChild(el('span', 'stat-mem', formatMem(c.mem_mb)));
-          stats.appendChild(el('span', 'stat-cpu', `${Number(c.cpu_percent || 0).toFixed(1)}%`));
-        } else {
-          stats.appendChild(el('span', 'stat-cpu', c.state || 'stopped'));
-        }
-        top.appendChild(left);
-        top.appendChild(stats);
-        row.appendChild(top);
-        const bar = el('div', 'bar');
-        const fill = el('div', 'bar-fill');
-        const pct = up ? Math.max(0, Math.min(100, Number(c.mem_percent) || 0)) : 0;
-        fill.style.width = `${pct}%`;
-        fill.className = `bar-fill ${up ? levelClass(pct) : 'lvl-muted'}`;
-        bar.appendChild(fill);
-        row.appendChild(bar);
-        cFrag.appendChild(row);
-      }
+      state.offline = true;
+      setStatus('err', 'Server offline or timed out. Showing last known data.');
+      renderHostSub(refs, state.data, state.lastOkAt, true);
     }
-    refs.containerList.replaceChildren(cFrag);
-
-    const procs = Array.isArray(d.processes) ? d.processes : [];
-    refs.procCount.textContent = String(procs.length);
-    const pFrag = document.createDocumentFragment();
-    if (!procs.length) {
-      pFrag.appendChild(el('div', 'empty', 'No host processes reported'));
-    } else {
-      for (const p of procs) {
-        const row = el('div', 'row');
-        const top = el('div', 'row-top');
-        const left = el('div', 'row-left');
-        left.appendChild(el('span', 'row-name', p.name || `pid:${p.pid}`));
-        const stats = el('div', 'row-stats num');
-        stats.appendChild(el('span', 'stat-mem', formatMem(p.mem_mb)));
-        stats.appendChild(el('span', 'stat-cpu', `${Number(p.cpu_percent || 0).toFixed(1)}%`));
-        top.appendChild(left);
-        top.appendChild(stats);
-        row.appendChild(top);
-        pFrag.appendChild(row);
-      }
-    }
-    refs.procList.replaceChildren(pFrag);
+  } finally {
+    refs.refreshBtn.classList.remove('spinning');
   }
+}
 
-  async function fetchMetrics(tok) {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 3000);
-    try {
-      const res = await fetch('/api/metrics', {
-        headers: { Authorization: `Bearer ${tok}` },
-        cache: 'no-store',
-        signal: ctrl.signal,
-      });
-      if (res.status === 401) throw new Error('UNAUTHORIZED');
-      if (!res.ok) throw new Error(`HTTP_${res.status}`);
-      return await res.json();
-    } finally {
-      clearTimeout(timer);
-    }
+refs.refreshBtn.addEventListener('click', () => { if (!state.inAuth) refresh(true); });
+refs.authBtn.addEventListener('click', () => showAuth(!state.inAuth));
+refs.sortBtn.textContent = SORT_LABEL[state.sortKey];
+refs.sortBtn.addEventListener('click', () => {
+  state.sortKey = SORT_KEYS[(SORT_KEYS.indexOf(state.sortKey) + 1) % SORT_KEYS.length];
+  localStorage.setItem(SORT_KEY, state.sortKey);
+  refs.sortBtn.textContent = SORT_LABEL[state.sortKey];
+  renderAll();
+});
+refs.procToggle.addEventListener('click', () => {
+  const open = refs.procToggle.getAttribute('aria-expanded') === 'true';
+  refs.procToggle.setAttribute('aria-expanded', String(!open));
+  refs.procList.classList.toggle('hidden', open);
+  refs.procChevron.classList.toggle('open', !open);
+});
+refs.clearTokenBtn.addEventListener('click', () => {
+  state.token = '';
+  localStorage.removeItem(TOKEN_KEY);
+  setStatus('idle');
+  showAuth(true);
+});
+refs.authForm.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const raw = refs.tokenInput.value.trim();
+  const candidate = raw.includes('#') ? raw.slice(raw.lastIndexOf('#') + 1).trim() : raw;
+  if (!candidate) return;
+  refs.connectBtn.disabled = true;
+  refs.authStatus.textContent = 'Connecting...';
+  refs.authStatus.className = 'status-msg';
+  try {
+    const data = await fetchMetrics(candidate);
+    state.token = candidate;
+    localStorage.setItem(TOKEN_KEY, candidate);
+    showAuth(false);
+    accept(data);
+  } catch (err) {
+    refs.authStatus.textContent = err?.message === 'UNAUTHORIZED' ? 'Invalid token (401).' : 'Connection failed.';
+    refs.authStatus.className = 'status-msg err';
+  } finally {
+    refs.connectBtn.disabled = false;
   }
+});
 
-  function stopPoll() {
-    if (pollTimer !== null) { clearInterval(pollTimer); pollTimer = null; }
-  }
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { stopPoll(); return; }
+  refresh(false);
+  startPoll();
+});
+// Keeps "updated Xs ago" honest even between polls or while offline.
+setInterval(() => { if (!document.hidden) renderHostSub(refs, state.data, state.lastOkAt, state.offline); }, 5000);
 
-  function startPoll() {
-    stopPoll();
-    if (!inAuth && token && !document.hidden) {
-      pollTimer = setInterval(() => { refresh(false); }, POLL_MS);
-    }
-  }
+const hashTok = window.location.hash.replace(/^#/, '').trim();
+if (hashTok) {
+  state.token = decodeURIComponent(hashTok);
+  localStorage.setItem(TOKEN_KEY, state.token);
+  history.replaceState(null, '', window.location.pathname);
+} else {
+  state.token = (localStorage.getItem(TOKEN_KEY) || '').trim();
+}
 
-  function showAuth(open, msg = '') {
-    inAuth = open;
-    refs.authView.classList.toggle('hidden', !open);
-    refs.dashboardView.classList.toggle('hidden', open);
-    refs.authBtn.classList.toggle('active', open);
-    refs.authStatus.textContent = msg;
-    refs.authStatus.className = msg ? 'status-msg err' : 'status-msg';
-    refs.clearTokenBtn.classList.toggle('hidden', !token);
-    if (open) {
-      stopPoll();
-      refs.tokenInput.value = '';
-      refs.tokenInput.focus();
-    } else {
-      startPoll();
-    }
-  }
-
-  async function refresh(spin = true) {
-    if (!token) return;
-    if (spin) refs.refreshBtn.classList.add('spinning');
-    try {
-      const data = await fetchMetrics(token);
-      renderData(data);
-      setBanner('ok', '');
-    } catch (err) {
-      if (err?.message === 'UNAUTHORIZED') {
-        setBanner('err', '');
-        showAuth(true, 'Invalid Bearer token (401).');
-      } else {
-        setBanner('err', 'Server offline or timed out.');
-      }
-    } finally {
-      refs.refreshBtn.classList.remove('spinning');
-    }
-  }
-
-  refs.refreshBtn.addEventListener('click', () => { if (!inAuth) refresh(true); });
-  refs.authBtn.addEventListener('click', () => showAuth(!inAuth));
-  refs.procToggle.addEventListener('click', () => {
-    const open = refs.procToggle.getAttribute('aria-expanded') === 'true';
-    refs.procToggle.setAttribute('aria-expanded', String(!open));
-    refs.procList.classList.toggle('hidden', open);
-    refs.procChevron.classList.toggle('open', !open);
-  });
-
-  refs.clearTokenBtn.addEventListener('click', () => {
-    token = '';
-    localStorage.removeItem(TOKEN_KEY);
-    setBanner('idle', '');
-    showAuth(true);
-  });
-
-  refs.authForm.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const raw = refs.tokenInput.value.trim();
-    const candidate = raw.includes('#') ? raw.slice(raw.lastIndexOf('#') + 1).trim() : raw;
-    if (!candidate) return;
-    refs.connectBtn.disabled = true;
-    refs.authStatus.textContent = 'Connecting...';
-    refs.authStatus.className = 'status-msg';
-    try {
-      const data = await fetchMetrics(candidate);
-      token = candidate;
-      localStorage.setItem(TOKEN_KEY, token);
-      renderData(data);
-      setBanner('ok', '');
-      showAuth(false);
-    } catch (err) {
-      refs.authStatus.textContent = err?.message === 'UNAUTHORIZED' ? 'Invalid token (401).' : 'Connection failed.';
-      refs.authStatus.className = 'status-msg err';
-    } finally {
-      refs.connectBtn.disabled = false;
-    }
-  });
-
-  document.addEventListener('visibilitychange', () => (document.hidden ? stopPoll() : startPoll()));
-
-  const hashTok = window.location.hash.replace(/^#/, '').trim();
-  if (hashTok) {
-    token = decodeURIComponent(hashTok);
-    localStorage.setItem(TOKEN_KEY, token);
-    history.replaceState(null, '', window.location.pathname);
-  } else {
-    token = (localStorage.getItem(TOKEN_KEY) || '').trim();
-  }
-
-  if (!token) {
-    showAuth(true);
-  } else {
-    refs.dashboardView.classList.remove('hidden');
-    refresh(false).then(startPoll);
-  }
-})();
+if (!state.token) {
+  showAuth(true);
+} else {
+  refs.dashboardView.classList.remove('hidden');
+  refresh(false).then(startPoll);
+}

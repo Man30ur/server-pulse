@@ -28,6 +28,7 @@ type SysCollector struct {
 	prevCPU    cpuSample
 	hasPrevCPU bool
 	prevProcs  map[int]uint64
+	prevIO     ioCounters
 }
 
 func NewSysCollector(procRoot, diskPath string, topN int) *SysCollector {
@@ -42,11 +43,12 @@ func NewSysCollector(procRoot, diskPath string, topN int) *SysCollector {
 		s.prevCPU = cur
 		s.hasPrevCPU = true
 		s.prevProcs = s.snapshotProcTicks()
+		s.collectExtras() // prime network/disk counters so the first request has rates
 	}
 	return s
 }
 
-func (s *SysCollector) Collect() (int64, CPUMetric, MemoryMetric, uint64, DiskMetric, []ProcessMetric) {
+func (s *SysCollector) Collect() HostSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -70,11 +72,19 @@ func (s *SysCollector) Collect() (int64, CPUMetric, MemoryMetric, uint64, DiskMe
 	}
 
 	memMetric, totalBytes := readMemInfo(filepath.Join(s.procRoot, "meminfo"))
-	uptimeSec := readUptime(filepath.Join(s.procRoot, "uptime"))
-	diskMetric := readDiskUsage(s.diskPath)
-	procs := s.collectTopProcesses(totalDelta)
+	load, netM, ioM := s.collectExtras()
 
-	return uptimeSec, cpuMetric, memMetric, totalBytes, diskMetric, procs
+	return HostSnapshot{
+		UptimeSec:     readUptime(filepath.Join(s.procRoot, "uptime")),
+		CPU:           cpuMetric,
+		Memory:        memMetric,
+		MemTotalBytes: totalBytes,
+		Disk:          readDiskUsage(s.diskPath),
+		Load:          load,
+		Network:       netM,
+		DiskIO:        ioM,
+		Processes:     s.collectTopProcesses(totalDelta),
+	}
 }
 
 func readCPUStat(path string) (cpuSample, error) {

@@ -1,4 +1,5 @@
 import { COLORS, STORAGE_KEYS, fetchMetrics, getConfig, levelColor } from './api.js';
+import { pushHistory } from './view.js';
 
 const ALARM_NAME = 'server-pulse-poll';
 const POLL_PERIOD_MINUTES = 0.25; // 15s in unpacked dev; Chrome clamps to 30s when packed.
@@ -26,8 +27,17 @@ export async function updateBadgeFromData(data, badgeMetric) {
   const rounded = Math.max(0, Math.min(100, Math.round(pct)));
   const label = rounded >= 100 ? '100' : `${rounded}%`;
   const host = data.hostname || 'Server-Pulse';
-  const title = `${host} · CPU ${data.cpu?.percent ?? 0}% · RAM ${data.memory?.percent ?? 0}%`;
+  const load = Array.isArray(data.load) ? ` · Load ${Number(data.load[0] || 0).toFixed(2)}` : '';
+  const title = `${host} · CPU ${data.cpu?.percent ?? 0}% · RAM ${data.memory?.percent ?? 0}%${load}`;
   await setBadge(label, levelColor(pct), title);
+}
+
+async function appendHistory(data) {
+  const stored = await chrome.storage.local.get(STORAGE_KEYS.HISTORY);
+  const raw = stored[STORAGE_KEYS.HISTORY];
+  const hist = raw && Array.isArray(raw.cpu) && Array.isArray(raw.ram) ? raw : { cpu: [], ram: [] };
+  pushHistory(hist, data);
+  return hist;
 }
 
 async function pollServer() {
@@ -39,9 +49,12 @@ async function pollServer() {
 
   try {
     const data = await fetchMetrics(cfg.serverUrl, cfg.apiToken, 3000);
+    const hist = await appendHistory(data);
     await chrome.storage.local.set({
       [STORAGE_KEYS.LAST_SNAPSHOT]: data,
+      [STORAGE_KEYS.LAST_OK_AT]: Date.now(),
       [STORAGE_KEYS.LAST_ERROR]: '',
+      [STORAGE_KEYS.HISTORY]: hist,
     });
     await updateBadgeFromData(data, cfg.badgeMetric);
   } catch (err) {

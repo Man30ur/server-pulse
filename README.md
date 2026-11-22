@@ -16,8 +16,8 @@ Ultra-lightweight, zero-bloat Linux server & Docker container monitor with a min
 
 ## English
 
-* **Micro-Agent (Go stdlib only):** `~8 MB` `FROM scratch` Docker image with the web dashboard embedded (`go:embed`), `~3–5 MB` RAM, `0.00%` idle CPU, read-only Docker socket (`:ro`), `2.5s` single-flight cache.
-* **Chrome MV3 Extension (Vanilla HTML/CSS/JS):** `~37 KB` total (`17 KB` zipped), zero frameworks (`no React/npm`), strict CSP, live toolbar Badge (`RAM%` or `CPU%`), per-container RAM/CPU rows, collapsible Top Processes.
+* **Micro-Agent (Go stdlib only):** `~8 MB` `FROM scratch` Docker image with the web dashboard embedded (`go:embed`), `~3–5 MB` RAM, `0.00%` idle CPU, read-only Docker socket (`:ro`), `2.5s` single-flight cache. Collects CPU, RAM/Swap, Disk, Load average (1/5/15m), host Net & Disk I/O rates, container health/status, and top non-container processes.
+* **Web Dashboard & Chrome MV3 Extension (Vanilla HTML/CSS/JS):** `~47 KB` unpacked (`20 KB` zipped), zero frameworks (`no React/npm`), strict CSP, live CPU/RAM SVG sparklines, sortable & expandable container rows (unhealthy pinned first), collapsible Top Processes with PID, and live Chrome toolbar Badge (`RAM%` or `CPU%`).
 
 ---
 
