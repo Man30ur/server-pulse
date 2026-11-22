@@ -12,9 +12,10 @@ import (
 )
 
 type cpuSample struct {
-	idle  uint64
-	total uint64
-	cores int
+	idle   uint64
+	iowait uint64
+	total  uint64
+	cores  int
 }
 
 // SysCollector reads host metrics directly from Linux /proc and statfs.
@@ -65,6 +66,9 @@ func (s *SysCollector) Collect() HostSnapshot {
 			if totalDelta > 0 && idleDelta <= totalDelta {
 				pct := (1.0 - float64(idleDelta)/float64(totalDelta)) * 100.0
 				cpuMetric.Percent = round1(clampPct(pct))
+				if curCPU.iowait >= s.prevCPU.iowait {
+					cpuMetric.IOWaitPercent = round1(clampPct(float64(curCPU.iowait-s.prevCPU.iowait) / float64(totalDelta) * 100.0))
+				}
 			}
 		}
 		s.prevCPU = curCPU
@@ -73,17 +77,21 @@ func (s *SysCollector) Collect() HostSnapshot {
 
 	memMetric, totalBytes := readMemInfo(filepath.Join(s.procRoot, "meminfo"))
 	load, netM, ioM := s.collectExtras()
+	diskMetric := readDiskUsage(s.diskPath)
+	memProcs, cpuProcs := s.collectTopProcesses(totalDelta)
 
 	return HostSnapshot{
 		UptimeSec:     readUptime(filepath.Join(s.procRoot, "uptime")),
 		CPU:           cpuMetric,
 		Memory:        memMetric,
 		MemTotalBytes: totalBytes,
-		Disk:          readDiskUsage(s.diskPath),
+		Disk:          diskMetric,
+		Disks:         readMounts(s.procRoot, s.diskPath, diskMetric),
 		Load:          load,
 		Network:       netM,
 		DiskIO:        ioM,
-		Processes:     s.collectTopProcesses(totalDelta),
+		Processes:     memProcs,
+		CPUProcesses:  cpuProcs,
 	}
 }
 
@@ -104,6 +112,9 @@ func readCPUStat(path string) (cpuSample, error) {
 				sample.total += v
 				if i == 3 || i == 4 { // idle + iowait
 					sample.idle += v
+				}
+				if i == 4 {
+					sample.iowait = v
 				}
 			}
 		} else if len(line) > 3 && strings.HasPrefix(line, "cpu") && line[3] >= '0' && line[3] <= '9' {
@@ -162,6 +173,8 @@ func readMemInfo(path string) (MemoryMetric, uint64) {
 		UsedMB:      int64(usedKB / 1024),
 		TotalMB:     int64(totalKB / 1024),
 		Percent:     memPct,
+		CachedMB:    int64((vals["Buffers"] + vals["Cached"]) / 1024),
+		AvailableMB: int64(availKB / 1024),
 		SwapUsedMB:  int64(swapUsedKB / 1024),
 		SwapTotalMB: int64(swapTotalKB / 1024),
 	}, totalKB * 1024

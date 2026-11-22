@@ -1,18 +1,24 @@
 import {
-  SORT_KEYS, pushHistory, renderContainers, renderHostSub, renderProcesses, renderSummary,
+  FOCUS_TABS, SORT_KEYS, pushHistory, renderContainers, renderDiskView, renderHostSub,
+  renderProcesses, renderSummary, syncFocusTabs,
 } from './view.js';
 
 const TOKEN_KEY = 'server_pulse_token';
 const SORT_KEY = 'server_pulse_sort';
+const TAB_KEY = 'server_pulse_tab';
 const POLL_MS = 3000;
 const $ = (id) => document.getElementById(id);
 const ids = ['statusDot', 'hostName', 'hostSub', 'refreshBtn', 'authBtn', 'errorBanner', 'dashboardView',
-  'authView', 'cpuVal', 'cpuSub', 'cpuBar', 'cpuSpark', 'ramVal', 'ramSub', 'ramBar', 'ramSpark', 'swapNote',
-  'diskVal', 'diskSub', 'diskBar', 'details', 'loadVal', 'netVal', 'ioVal', 'containerCount', 'issues',
-  'sortBtn', 'containerList', 'procToggle', 'procCount', 'procChevron', 'procList', 'authForm', 'tokenInput',
+  'authView', 'tabCpu', 'tabRam', 'tabDisk', 'cpuVal', 'cpuSub', 'cpuBar', 'cpuSpark', 'ramVal', 'ramSub',
+  'ramBar', 'ramSpark', 'swapNote', 'diskVal', 'diskSub', 'diskBar', 'details', 'd1Label', 'd1Val',
+  'd2Label', 'd2Val', 'd3Label', 'd3Val', 'computePanel', 'diskPanel', 'containerCount', 'issues',
+  'sortBtn', 'containerList', 'procToggle', 'procTitle', 'procCount', 'procChevron', 'procList',
+  'mountCount', 'mountList', 'dockerDiskTotal', 'reclaimPill', 'dockerDiskList', 'authForm', 'tokenInput',
   'authStatus', 'clearTokenBtn', 'connectBtn'];
 const refs = Object.fromEntries(ids.map((id) => [id, $(id)]));
 
+const savedTab = localStorage.getItem(TAB_KEY);
+const savedSort = localStorage.getItem(SORT_KEY);
 const state = {
   token: '',
   data: null,
@@ -21,7 +27,8 @@ const state = {
   inAuth: false,
   pollTimer: null,
   hist: { cpu: [], ram: [] },
-  sortKey: SORT_KEYS.includes(localStorage.getItem(SORT_KEY)) ? localStorage.getItem(SORT_KEY) : 'ram',
+  focusTab: FOCUS_TABS.includes(savedTab) ? savedTab : 'ram',
+  sortKey: SORT_KEYS.includes(savedSort) ? savedSort : 'ram',
   expanded: new Set(),
 };
 const SORT_LABEL = { ram: 'RAM', cpu: 'CPU', name: 'A–Z' };
@@ -34,13 +41,30 @@ function setStatus(kind, msg = '') {
 }
 
 function renderAll() {
+  syncFocusTabs(refs, state.focusTab);
+  refs.sortBtn.textContent = SORT_LABEL[state.sortKey];
   const d = state.data;
   if (!d) return;
   document.title = `${d.hostname || 'Server-Pulse'} · CPU ${Math.round(d.cpu?.percent || 0)}% · RAM ${Math.round(d.memory?.percent || 0)}%`;
-  renderSummary(refs, d, state.hist);
-  renderContainers(refs, d.containers, { sortKey: state.sortKey, expanded: state.expanded });
-  renderProcesses(refs, d.processes);
+  renderSummary(refs, d, state.hist, state.focusTab);
+  if (state.focusTab === 'disk') {
+    renderDiskView(refs, d);
+  } else {
+    renderContainers(refs, d.containers, { sortKey: state.sortKey, focusTab: state.focusTab, expanded: state.expanded });
+    renderProcesses(refs, d, state.focusTab);
+  }
   renderHostSub(refs, d, state.lastOkAt, state.offline);
+}
+
+function selectTab(tab) {
+  if (!FOCUS_TABS.includes(tab)) return;
+  state.focusTab = tab;
+  localStorage.setItem(TAB_KEY, tab);
+  if (tab === 'cpu' || tab === 'ram') {
+    state.sortKey = tab;
+    localStorage.setItem(SORT_KEY, tab);
+  }
+  renderAll();
 }
 
 async function fetchMetrics(tok) {
@@ -106,13 +130,14 @@ async function refresh(spin = true) {
   }
 }
 
+for (const btn of [refs.tabCpu, refs.tabRam, refs.tabDisk]) {
+  btn.addEventListener('click', () => selectTab(btn.dataset.tab));
+}
 refs.refreshBtn.addEventListener('click', () => { if (!state.inAuth) refresh(true); });
 refs.authBtn.addEventListener('click', () => showAuth(!state.inAuth));
-refs.sortBtn.textContent = SORT_LABEL[state.sortKey];
 refs.sortBtn.addEventListener('click', () => {
   state.sortKey = SORT_KEYS[(SORT_KEYS.indexOf(state.sortKey) + 1) % SORT_KEYS.length];
   localStorage.setItem(SORT_KEY, state.sortKey);
-  refs.sortBtn.textContent = SORT_LABEL[state.sortKey];
   renderAll();
 });
 refs.procToggle.addEventListener('click', () => {
@@ -154,7 +179,6 @@ document.addEventListener('visibilitychange', () => {
   refresh(false);
   startPoll();
 });
-// Keeps "updated Xs ago" honest even between polls or while offline.
 setInterval(() => { if (!document.hidden) renderHostSub(refs, state.data, state.lastOkAt, state.offline); }, 5000);
 
 const hashTok = window.location.hash.replace(/^#/, '').trim();
@@ -166,6 +190,7 @@ if (hashTok) {
   state.token = (localStorage.getItem(TOKEN_KEY) || '').trim();
 }
 
+syncFocusTabs(refs, state.focusTab);
 if (!state.token) {
   showAuth(true);
 } else {

@@ -9,6 +9,7 @@ export const STORAGE_KEYS = {
   LAST_ERROR: 'lastError',
   HISTORY: 'history',
   SORT_KEY: 'sortKey',
+  FOCUS_TAB: 'focusTab',
 };
 
 export const COLORS = {

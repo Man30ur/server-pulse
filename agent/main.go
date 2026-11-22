@@ -111,18 +111,29 @@ func NewHandler(cfg Config, sys *SysCollector, docker *DockerCollector) http.Han
 		if procs == nil {
 			procs = []ProcessMetric{}
 		}
+		cpuProcs := host.CPUProcesses
+		if cpuProcs == nil {
+			cpuProcs = []ProcessMetric{}
+		}
+		disks := host.Disks
+		if disks == nil {
+			disks = []MountMetric{}
+		}
 		payload := MetricsPayload{
-			Timestamp:  time.Now().Unix(),
-			Hostname:   cfg.Hostname,
-			UptimeSec:  host.UptimeSec,
-			CPU:        host.CPU,
-			Memory:     host.Memory,
-			Disk:       host.Disk,
-			Load:       host.Load,
-			Network:    host.Network,
-			DiskIO:     host.DiskIO,
-			Containers: containers,
-			Processes:  procs,
+			Timestamp:    time.Now().Unix(),
+			Hostname:     cfg.Hostname,
+			UptimeSec:    host.UptimeSec,
+			CPU:          host.CPU,
+			Memory:       host.Memory,
+			Disk:         host.Disk,
+			Disks:        disks,
+			DockerDisk:   docker.CollectDF(),
+			Load:         host.Load,
+			Network:      host.Network,
+			DiskIO:       host.DiskIO,
+			Containers:   containers,
+			Processes:    procs,
+			CPUProcesses: cpuProcs,
 		}
 		return json.Marshal(payload)
 	})

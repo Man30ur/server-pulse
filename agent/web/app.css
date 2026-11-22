@@ -215,3 +215,36 @@ body {
   .bar-fill, .view, .chevron { transition: none; }
   .icon-btn.spinning svg { animation: none; }
 }
+
+/* ---- Interactive Focus Cards & Disk Panel ---- */
+.pill-btn {
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.pill-btn:hover { border-color: #2E3644; }
+.pill-btn:focus-visible { border-color: var(--green); }
+.pill-btn.active {
+  border-color: rgba(16, 185, 129, 0.55);
+  box-shadow: inset 0 2px 0 var(--green);
+  background: #151921;
+}
+.pill-btn.active .pill-label { color: var(--text); }
+
+.panel { display: flex; flex-direction: column; gap: 10px; }
+.stat-main { color: var(--text); font-weight: 500; }
+.stat-sub { color: var(--muted); font-weight: 400; }
+
+.pill-warn {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: #FCD34D;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 999px;
+  padding: 0 7px;
+  line-height: 16px;
+}

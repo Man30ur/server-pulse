@@ -29,10 +29,10 @@ func (s *SysCollector) snapshotProcTicks() map[int]uint64 {
 	return ticks
 }
 
-func (s *SysCollector) collectTopProcesses(totalDelta uint64) []ProcessMetric {
+func (s *SysCollector) collectTopProcesses(totalDelta uint64) ([]ProcessMetric, []ProcessMetric) {
 	entries, err := os.ReadDir(s.procRoot)
 	if err != nil {
-		return []ProcessMetric{}
+		return []ProcessMetric{}, []ProcessMetric{}
 	}
 
 	nextTicks := make(map[int]uint64, len(s.prevProcs))
@@ -68,19 +68,34 @@ func (s *SysCollector) collectTopProcesses(totalDelta uint64) []ProcessMetric {
 	}
 	s.prevProcs = nextTicks
 
-	sort.Slice(procs, func(i, j int) bool {
-		if procs[i].MemMB != procs[j].MemMB {
-			return procs[i].MemMB > procs[j].MemMB
+	byMem := make([]ProcessMetric, len(procs))
+	copy(byMem, procs)
+	sort.Slice(byMem, func(i, j int) bool {
+		if byMem[i].MemMB != byMem[j].MemMB {
+			return byMem[i].MemMB > byMem[j].MemMB
 		}
+		if byMem[i].CPUPercent != byMem[j].CPUPercent {
+			return byMem[i].CPUPercent > byMem[j].CPUPercent
+		}
+		return byMem[i].PID < byMem[j].PID
+	})
+	if len(byMem) > s.topN {
+		byMem = byMem[:s.topN]
+	}
+
+	sort.Slice(procs, func(i, j int) bool {
 		if procs[i].CPUPercent != procs[j].CPUPercent {
 			return procs[i].CPUPercent > procs[j].CPUPercent
+		}
+		if procs[i].MemMB != procs[j].MemMB {
+			return procs[i].MemMB > procs[j].MemMB
 		}
 		return procs[i].PID < procs[j].PID
 	})
 	if len(procs) > s.topN {
 		procs = procs[:s.topN]
 	}
-	return procs
+	return byMem, procs
 }
 
 func readProcStat(path string) (name string, ticks uint64, rss uint64, ok bool) {

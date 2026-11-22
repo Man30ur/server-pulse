@@ -172,34 +172,75 @@ test('view.js renders summary, sparklines, details, issue-first sorted container
 
   const refs = {
     hostName: makeNode('span'), hostSub: makeNode('span'),
+    tabCpu: makeNode('button'), tabRam: makeNode('button'), tabDisk: makeNode('button'),
+    computePanel: makeNode('div'), diskPanel: makeNode('div'),
     cpuVal: makeNode('div'), cpuSub: makeNode('span'), cpuBar: makeNode('div'), cpuSpark: makeNode('svg'),
     ramVal: makeNode('div'), ramSub: makeNode('span'), ramBar: makeNode('div'), ramSpark: makeNode('svg'), swapNote: makeNode('span'),
     diskVal: makeNode('div'), diskSub: makeNode('span'), diskBar: makeNode('div'),
-    details: makeNode('section'), loadVal: makeNode('span'), netVal: makeNode('span'), ioVal: makeNode('span'),
+    details: makeNode('section'),
+    d1Label: makeNode('span'), d1Val: makeNode('span'),
+    d2Label: makeNode('span'), d2Val: makeNode('span'),
+    d3Label: makeNode('span'), d3Val: makeNode('span'),
     containerList: makeNode('div'), containerCount: makeNode('span'), issues: makeNode('span'),
-    procList: makeNode('div'), procCount: makeNode('span'),
+    procTitle: makeNode('span'), procList: makeNode('div'), procCount: makeNode('span'),
+    mountCount: makeNode('span'), mountList: makeNode('div'),
+    dockerDiskTotal: makeNode('span'), reclaimPill: makeNode('span'), dockerDiskList: makeNode('div'),
   };
 
-  const hist = { cpu: [12, 18.4], ram: [50, 52.7] };
-  view.renderSummary(refs, {
+  const sample = {
     hostname: 'demo-node-1',
     uptime_sec: 86400,
-    cpu: { percent: 18.4, cores: 6 },
-    memory: { used_mb: 8420, total_mb: 15980, percent: 52.7, swap_used_mb: 256, swap_total_mb: 8192 },
+    cpu: { percent: 18.4, cores: 6, iowait_percent: 1.5 },
+    memory: { used_mb: 8420, total_mb: 15980, percent: 52.7, cached_mb: 4096, available_mb: 7560, swap_used_mb: 256, swap_total_mb: 8192 },
     disk: { used_gb: 24.5, total_gb: 99.0, percent: 24.7 },
+    disks: [{ mount: '/', device: 'vda1', used_gb: 24.5, total_gb: 99.0, percent: 24.7 }],
+    docker_disk: {
+      images_gb: 12.4, images_count: 14, volumes_gb: 6.2, volumes_count: 5,
+      build_cache_gb: 1.8, build_cache_count: 20, containers_gb: 0.4, containers_count: 8,
+      total_gb: 20.8, reclaimable_gb: 3.1,
+    },
     load: [1.25, 0.9, 0.6],
     network: { rx_bps: 102400, tx_bps: 20480 },
     disk_io: { read_bps: 0, write_bps: 2097152 },
-  }, hist);
+    processes: [{ pid: 1245, name: 'java', cpu_percent: 4.5, mem_mb: 2150 }],
+    cpu_processes: [{ pid: 901, name: 'ffmpeg', cpu_percent: 42.0, mem_mb: 120 }],
+  };
+
+  const hist = { cpu: [12, 18.4], ram: [50, 52.7] };
+  // RAM focus tab
+  view.syncFocusTabs(refs, 'ram');
+  view.renderSummary(refs, sample, hist, 'ram');
   assert.equal(refs.hostName.textContent, 'demo-node-1');
-  assert.equal(refs.cpuVal.textContent, '18.4%');
-  assert.equal(refs.ramVal.textContent, '52.7%');
-  assert.equal(refs.diskVal.textContent, '24.7%');
-  assert.equal(refs.loadVal.textContent, '1.25 0.90 0.60');
-  assert.equal(refs.netVal.textContent, '↓100K ↑20K');
-  assert.equal(refs.ioVal.textContent, 'R 0B W 2.0M');
+  assert.equal(refs.d1Label.textContent, 'CACHE');
+  assert.equal(refs.d1Val.textContent, '4.0G');
+  assert.equal(refs.d2Label.textContent, 'AVAIL');
+  assert.equal(refs.d3Val.textContent, '↓100K ↑20K');
   assert.ok(!refs.swapNote.classList.contains('hidden'));
   assert.ok(refs.cpuSpark.firstElementChild.getAttribute('points').includes(','));
+
+  // CPU focus tab
+  view.syncFocusTabs(refs, 'cpu');
+  view.renderSummary(refs, sample, hist, 'cpu');
+  assert.equal(refs.d1Label.textContent, 'LOAD');
+  assert.equal(refs.d1Val.textContent, '1.25 0.90 0.60');
+  assert.equal(refs.d2Label.textContent, 'IOWAIT');
+  assert.equal(refs.d2Val.textContent, '1.5%');
+  view.renderProcesses(refs, sample, 'cpu');
+  assert.equal(refs.procTitle.textContent, 'TOP PROCESSES · CPU');
+  assert.equal(refs.procList.children[0].children[0].children[0].children[0].textContent, 'ffmpeg');
+
+  // DISK focus tab
+  view.syncFocusTabs(refs, 'disk');
+  assert.ok(refs.computePanel.classList.contains('hidden'));
+  assert.ok(!refs.diskPanel.classList.contains('hidden'));
+  view.renderSummary(refs, sample, hist, 'disk');
+  assert.equal(refs.d1Label.textContent, 'USED');
+  assert.equal(refs.d3Val.textContent, 'R 0B W 2.0M');
+  view.renderDiskView(refs, sample);
+  assert.equal(refs.mountCount.textContent, '1');
+  assert.equal(refs.dockerDiskTotal.textContent, '20.8G');
+  assert.equal(refs.reclaimPill.textContent, '3.1G reclaimable');
+  assert.equal(refs.dockerDiskList.children.length, 4);
 
   const expanded = new Set();
   view.renderContainers(refs, [
@@ -207,18 +248,17 @@ test('view.js renders summary, sparklines, details, issue-first sorted container
     { id: '2', name: 'api', state: 'running', status: 'Up 1h (unhealthy)', health: 'unhealthy', cpu_percent: 1.2, mem_mb: 80, mem_percent: 0.5 },
     { id: '3', name: 'web', state: 'running', status: 'Up 5h', health: '', cpu_percent: 2.0, mem_mb: 420.5, mem_percent: 2.6 },
     { id: '4', name: 'old-job', state: 'exited', status: 'Exited (0)', health: '', cpu_percent: 0, mem_mb: 0, mem_percent: 0 },
-  ], { sortKey: 'ram', expanded });
+  ], { sortKey: 'ram', focusTab: 'ram', expanded });
   assert.equal(refs.containerCount.textContent, '3/4');
   assert.equal(refs.issues.textContent, '1 issue');
-  // Unhealthy container is pinned first ahead of heavier healthy containers
   assert.equal(refs.containerList.children[0].children[0].children[0].children[1].textContent, 'api');
   assert.equal(refs.containerList.children[1].children[0].children[0].children[1].textContent, 'web');
-  // Clicking a row toggles its inline detail drawer
   refs.containerList.children[0].click();
   assert.ok(expanded.has('2'));
   assert.equal(refs.containerList.children[0].getAttribute('aria-expanded'), 'true');
 
-  view.renderProcesses(refs, [{ pid: 1245, name: 'java', cpu_percent: 4.5, mem_mb: 2150 }]);
+  view.renderProcesses(refs, sample, 'ram');
+  assert.equal(refs.procTitle.textContent, 'TOP PROCESSES · RAM');
   assert.equal(refs.procCount.textContent, '1');
   assert.equal(refs.procList.children[0].children[0].children[0].children[0].textContent, 'java');
 });

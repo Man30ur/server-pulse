@@ -67,6 +67,11 @@ type DockerCollector struct {
 	workers    int
 	mu         sync.Mutex
 	prevCPU    map[string]prevContainerCPU
+
+	dfMu      sync.Mutex
+	dfCache   *DockerDiskMetric
+	dfAt      time.Time
+	dfLoading bool
 }
 
 func NewDockerCollector(socketPath string) *DockerCollector {
@@ -78,12 +83,16 @@ func NewDockerCollector(socketPath string) *DockerCollector {
 		MaxIdleConnsPerHost: 16,
 		IdleConnTimeout:     30 * time.Second,
 	}
-	return &DockerCollector{
+	dc := &DockerCollector{
 		socketPath: socketPath,
 		client:     &http.Client{Transport: tr},
 		workers:    6,
 		prevCPU:    make(map[string]prevContainerCPU),
 	}
+	if socketPath != "" {
+		dc.CollectDF() // warm /system/df asynchronously at startup
+	}
+	return dc
 }
 
 func (d *DockerCollector) Collect(ctx context.Context, hostMemBytes uint64) []ContainerMetric {
@@ -94,7 +103,7 @@ func (d *DockerCollector) Collect(ctx context.Context, hostMemBytes uint64) []Co
 		return []ContainerMetric{}
 	}
 	var containers []dockerContainer
-	if err := d.getJSON(ctx, "http://docker/containers/json?all=1", &containers); err != nil || len(containers) == 0 {
+	if err := d.getJSONTimeout(ctx, "http://docker/containers/json?all=1", 2*time.Second, &containers); err != nil || len(containers) == 0 {
 		return []ContainerMetric{}
 	}
 
@@ -136,7 +145,7 @@ func (d *DockerCollector) Collect(ctx context.Context, hostMemBytes uint64) []Co
 			for j := range jobs {
 				var st dockerStatsResp
 				url := fmt.Sprintf("http://docker/containers/%s/stats?stream=false&one-shot=true", j.id)
-				if err := d.getJSON(ctx, url, &st); err != nil {
+				if err := d.getJSONTimeout(ctx, url, 2*time.Second, &st); err != nil {
 					continue
 				}
 				results[j.idx].CPUPercent = round1(d.calcCPU(j.id, st))
@@ -161,8 +170,8 @@ func (d *DockerCollector) Collect(ctx context.Context, hostMemBytes uint64) []Co
 	return results
 }
 
-func (d *DockerCollector) getJSON(ctx context.Context, url string, dst any) error {
-	reqCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+func (d *DockerCollector) getJSONTimeout(ctx context.Context, url string, timeout time.Duration, dst any) error {
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
 	if err != nil {

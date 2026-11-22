@@ -10,17 +10,43 @@ import (
 
 // MetricsPayload matches the exact JSON API contract in AI_CODEMAP.md.
 type MetricsPayload struct {
-	Timestamp  int64             `json:"timestamp"`
-	Hostname   string            `json:"hostname"`
-	UptimeSec  int64             `json:"uptime_sec"`
-	CPU        CPUMetric         `json:"cpu"`
-	Memory     MemoryMetric      `json:"memory"`
-	Disk       DiskMetric        `json:"disk"`
-	Load       [3]float64        `json:"load"`
-	Network    NetMetric         `json:"network"`
-	DiskIO     DiskIOMetric      `json:"disk_io"`
-	Containers []ContainerMetric `json:"containers"`
-	Processes  []ProcessMetric   `json:"processes"`
+	Timestamp    int64             `json:"timestamp"`
+	Hostname     string            `json:"hostname"`
+	UptimeSec    int64             `json:"uptime_sec"`
+	CPU          CPUMetric         `json:"cpu"`
+	Memory       MemoryMetric      `json:"memory"`
+	Disk         DiskMetric        `json:"disk"`
+	Disks        []MountMetric     `json:"disks"`
+	DockerDisk   *DockerDiskMetric `json:"docker_disk,omitempty"`
+	Load         [3]float64        `json:"load"`
+	Network      NetMetric         `json:"network"`
+	DiskIO       DiskIOMetric      `json:"disk_io"`
+	Containers   []ContainerMetric `json:"containers"`
+	Processes    []ProcessMetric   `json:"processes"`
+	CPUProcesses []ProcessMetric   `json:"cpu_processes"`
+}
+
+// MountMetric describes a mounted host filesystem partition.
+type MountMetric struct {
+	Mount   string  `json:"mount"`
+	Device  string  `json:"device"`
+	UsedGB  float64 `json:"used_gb"`
+	TotalGB float64 `json:"total_gb"`
+	Percent float64 `json:"percent"`
+}
+
+// DockerDiskMetric summarizes Docker disk usage from read-only GET /system/df.
+type DockerDiskMetric struct {
+	ImagesGB        float64 `json:"images_gb"`
+	ImagesCount     int     `json:"images_count"`
+	ContainersGB    float64 `json:"containers_gb"`
+	ContainersCount int     `json:"containers_count"`
+	VolumesGB       float64 `json:"volumes_gb"`
+	VolumesCount    int     `json:"volumes_count"`
+	BuildCacheGB    float64 `json:"build_cache_gb"`
+	BuildCacheCount int     `json:"build_cache_count"`
+	TotalGB         float64 `json:"total_gb"`
+	ReclaimableGB   float64 `json:"reclaimable_gb"`
 }
 
 // NetMetric is host network throughput (bytes/sec) excluding loopback and Docker bridges.
@@ -42,21 +68,26 @@ type HostSnapshot struct {
 	Memory        MemoryMetric
 	MemTotalBytes uint64
 	Disk          DiskMetric
+	Disks         []MountMetric
 	Load          [3]float64
 	Network       NetMetric
 	DiskIO        DiskIOMetric
 	Processes     []ProcessMetric
+	CPUProcesses  []ProcessMetric
 }
 
 type CPUMetric struct {
-	Percent float64 `json:"percent"`
-	Cores   int     `json:"cores"`
+	Percent       float64 `json:"percent"`
+	Cores         int     `json:"cores"`
+	IOWaitPercent float64 `json:"iowait_percent"`
 }
 
 type MemoryMetric struct {
 	UsedMB      int64   `json:"used_mb"`
 	TotalMB     int64   `json:"total_mb"`
 	Percent     float64 `json:"percent"`
+	CachedMB    int64   `json:"cached_mb"`
+	AvailableMB int64   `json:"available_mb"`
 	SwapUsedMB  int64   `json:"swap_used_mb"`
 	SwapTotalMB int64   `json:"swap_total_mb"`
 }

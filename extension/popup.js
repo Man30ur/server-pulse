@@ -1,20 +1,28 @@
 import { STORAGE_KEYS, fetchMetrics, getConfig, parseConnectionInput, saveConfig } from './api.js';
-import { SORT_KEYS, pushHistory, renderContainers, renderHostSub, renderProcesses, renderSummary } from './view.js';
+import {
+  FOCUS_TABS, SORT_KEYS, pushHistory, renderContainers, renderDiskView, renderHostSub,
+  renderProcesses, renderSummary, syncFocusTabs,
+} from './view.js';
 
 const POLL_MS = 3000;
 const SORT_LABEL = { ram: 'RAM', cpu: 'CPU', name: 'A–Z' };
 const $ = (id) => document.getElementById(id);
 const ids = ['statusDot', 'hostName', 'hostSub', 'refreshBtn', 'settingsBtn', 'errorBanner', 'dashboardView',
-  'settingsView', 'cpuVal', 'cpuSub', 'cpuBar', 'cpuSpark', 'ramVal', 'ramSub', 'ramBar', 'ramSpark', 'swapNote',
-  'diskVal', 'diskSub', 'diskBar', 'details', 'loadVal', 'netVal', 'ioVal', 'containerCount', 'issues', 'sortBtn',
-  'containerList', 'procToggle', 'procCount', 'procChevron', 'procList', 'settingsForm', 'inputUrl', 'inputToken',
+  'settingsView', 'tabCpu', 'tabRam', 'tabDisk', 'cpuVal', 'cpuSub', 'cpuBar', 'cpuSpark', 'ramVal', 'ramSub',
+  'ramBar', 'ramSpark', 'swapNote', 'diskVal', 'diskSub', 'diskBar', 'details', 'd1Label', 'd1Val', 'd2Label',
+  'd2Val', 'd3Label', 'd3Val', 'computePanel', 'diskPanel', 'containerCount', 'issues', 'sortBtn',
+  'containerList', 'procToggle', 'procTitle', 'procCount', 'procChevron', 'procList', 'mountCount',
+  'mountList', 'dockerDiskTotal', 'reclaimPill', 'dockerDiskList', 'settingsForm', 'inputUrl', 'inputToken',
   'toggleTokenBtn', 'settingsStatus', 'cancelBtn', 'saveBtn'];
 const refs = Object.fromEntries(ids.map((id) => [id, $(id)]));
 
 let pollTimer = null;
 let inSettings = false;
 let currentConfig = { serverUrl: '', apiToken: '', badgeMetric: 'ram' };
-const view = { data: null, lastOkAt: 0, offline: false, hist: { cpu: [], ram: [] }, sortKey: 'ram', expanded: new Set() };
+const view = {
+  data: null, lastOkAt: 0, offline: false,
+  hist: { cpu: [], ram: [] }, focusTab: 'ram', sortKey: 'ram', expanded: new Set(),
+};
 
 function setConnectionState(state, message = '') {
   refs.statusDot.className = `dot ${state === 'ok' ? 'dot-ok' : state === 'err' ? 'dot-err' : 'dot-idle'}`;
@@ -31,11 +39,29 @@ function errorLabel(code) {
 }
 
 function renderAll() {
+  syncFocusTabs(refs, view.focusTab);
+  refs.sortBtn.textContent = SORT_LABEL[view.sortKey];
   if (!view.data) return;
-  renderSummary(refs, view.data, view.hist);
-  renderContainers(refs, view.data.containers, { sortKey: view.sortKey, expanded: view.expanded });
-  renderProcesses(refs, view.data.processes);
+  renderSummary(refs, view.data, view.hist, view.focusTab);
+  if (view.focusTab === 'disk') {
+    renderDiskView(refs, view.data);
+  } else {
+    renderContainers(refs, view.data.containers, { sortKey: view.sortKey, focusTab: view.focusTab, expanded: view.expanded });
+    renderProcesses(refs, view.data, view.focusTab);
+  }
   renderHostSub(refs, view.data, view.lastOkAt, view.offline);
+}
+
+function selectTab(tab) {
+  if (!FOCUS_TABS.includes(tab)) return;
+  view.focusTab = tab;
+  const patch = { [STORAGE_KEYS.FOCUS_TAB]: tab };
+  if (tab === 'cpu' || tab === 'ram') {
+    view.sortKey = tab;
+    patch[STORAGE_KEYS.SORT_KEY] = tab;
+  }
+  chrome.storage.local.set(patch);
+  renderAll();
 }
 
 async function applySnapshot(data, lastOkAt = Date.now(), record = false) {
@@ -98,33 +124,31 @@ function showSettings(open) {
   }
 }
 
+for (const btn of [refs.tabCpu, refs.tabRam, refs.tabDisk]) {
+  btn.addEventListener('click', () => selectTab(btn.dataset.tab));
+}
 refs.settingsBtn.addEventListener('click', () => showSettings(!inSettings));
 refs.cancelBtn.addEventListener('click', () => showSettings(false));
 refs.refreshBtn.addEventListener('click', () => {
   if (inSettings) showSettings(false);
   refresh(true);
 });
-
 refs.sortBtn.addEventListener('click', () => {
   view.sortKey = SORT_KEYS[(SORT_KEYS.indexOf(view.sortKey) + 1) % SORT_KEYS.length];
-  refs.sortBtn.textContent = SORT_LABEL[view.sortKey];
   chrome.storage.local.set({ [STORAGE_KEYS.SORT_KEY]: view.sortKey });
   renderAll();
 });
-
 refs.procToggle.addEventListener('click', () => {
   const expanded = refs.procToggle.getAttribute('aria-expanded') === 'true';
   refs.procToggle.setAttribute('aria-expanded', String(!expanded));
   refs.procList.classList.toggle('hidden', expanded);
   refs.procChevron.classList.toggle('open', !expanded);
 });
-
 refs.toggleTokenBtn.addEventListener('click', () => {
   const isHidden = refs.inputToken.type === 'password';
   refs.inputToken.type = isHidden ? 'text' : 'password';
   refs.toggleTokenBtn.textContent = isHidden ? 'Hide' : 'Show';
 });
-
 refs.inputUrl.addEventListener('input', () => {
   const parsed = parseConnectionInput(refs.inputUrl.value);
   if (parsed.apiToken) {
@@ -159,7 +183,7 @@ refs.settingsForm.addEventListener('submit', async (ev) => {
     currentConfig = { serverUrl, apiToken, badgeMetric };
     const now = Date.now();
     await chrome.storage.local.set({ [STORAGE_KEYS.LAST_SNAPSHOT]: data, [STORAGE_KEYS.LAST_OK_AT]: now, [STORAGE_KEYS.LAST_ERROR]: '' });
-    await applySnapshot(data, now);
+    await applySnapshot(data, now, true);
     setConnectionState('ok');
     chrome.runtime.sendMessage({ type: 'syncBadge', data, badgeMetric }).catch(() => {});
     showSettings(false);
@@ -171,7 +195,6 @@ refs.settingsForm.addEventListener('submit', async (ev) => {
   }
 });
 
-// The background worker owns the trend history (one sample per alarm, ~15 min window).
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes[STORAGE_KEYS.HISTORY]?.newValue) {
     view.hist = changes[STORAGE_KEYS.HISTORY].newValue;
@@ -185,10 +208,12 @@ setInterval(() => renderHostSub(refs, view.data, view.lastOkAt, view.offline), 5
 async function init() {
   currentConfig = await getConfig();
   const cached = await chrome.storage.local.get([STORAGE_KEYS.LAST_SNAPSHOT, STORAGE_KEYS.LAST_OK_AT,
-    STORAGE_KEYS.LAST_ERROR, STORAGE_KEYS.HISTORY, STORAGE_KEYS.SORT_KEY]);
+    STORAGE_KEYS.LAST_ERROR, STORAGE_KEYS.HISTORY, STORAGE_KEYS.SORT_KEY, STORAGE_KEYS.FOCUS_TAB]);
+  if (FOCUS_TABS.includes(cached[STORAGE_KEYS.FOCUS_TAB])) view.focusTab = cached[STORAGE_KEYS.FOCUS_TAB];
   if (SORT_KEYS.includes(cached[STORAGE_KEYS.SORT_KEY])) view.sortKey = cached[STORAGE_KEYS.SORT_KEY];
-  refs.sortBtn.textContent = SORT_LABEL[view.sortKey];
   if (cached[STORAGE_KEYS.HISTORY]?.cpu) view.hist = cached[STORAGE_KEYS.HISTORY];
+  syncFocusTabs(refs, view.focusTab);
+  refs.sortBtn.textContent = SORT_LABEL[view.sortKey];
 
   if (!currentConfig.serverUrl || !currentConfig.apiToken) {
     showSettings(true);

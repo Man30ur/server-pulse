@@ -91,3 +91,56 @@ func itoa(n int) string {
 	}
 	return string(b)
 }
+
+func TestParseDockerDF(t *testing.T) {
+	const gb = 1024 * 1024 * 1024
+	var raw dockerDFResp
+	raw.LayersSize = 10 * gb
+	raw.Images = []struct {
+		Size       int64 `json:"Size"`
+		SharedSize int64 `json:"SharedSize"`
+		Containers int64 `json:"Containers"`
+	}{
+		{Size: 4 * gb, SharedSize: gb, Containers: 1},
+		{Size: 3 * gb, SharedSize: gb, Containers: 0}, // 2 GB reclaimable
+	}
+	raw.Containers = []struct {
+		State  string `json:"State"`
+		SizeRw int64  `json:"SizeRw"`
+	}{
+		{State: "running", SizeRw: gb / 2},
+		{State: "exited", SizeRw: gb / 2},
+	}
+	raw.Volumes = []struct {
+		UsageData *struct {
+			Size     int64 `json:"Size"`
+			RefCount int64 `json:"RefCount"`
+		} `json:"UsageData"`
+	}{
+		{UsageData: &struct {
+			Size     int64 `json:"Size"`
+			RefCount int64 `json:"RefCount"`
+		}{Size: 4 * gb, RefCount: 1}},
+		{UsageData: &struct {
+			Size     int64 `json:"Size"`
+			RefCount int64 `json:"RefCount"`
+		}{Size: 2 * gb, RefCount: 0}},
+	}
+	raw.BuildCache = []struct {
+		Size  int64 `json:"Size"`
+		InUse bool  `json:"InUse"`
+	}{
+		{Size: 1 * gb, InUse: false},
+	}
+
+	got := parseDockerDF(raw)
+	if got.ImagesGB != 10.0 || got.ImagesCount != 2 {
+		t.Fatalf("unexpected images: %+v", got)
+	}
+	if got.ContainersGB != 1.0 || got.VolumesGB != 6.0 || got.BuildCacheGB != 1.0 {
+		t.Fatalf("unexpected breakdown: %+v", got)
+	}
+	if got.TotalGB != 18.0 || got.ReclaimableGB != 5.5 {
+		t.Fatalf("expected total=18.0 reclaim=5.5, got %+v", got)
+	}
+}

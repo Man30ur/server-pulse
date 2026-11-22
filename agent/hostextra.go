@@ -138,3 +138,85 @@ func readDiskStats(path string) (readBytes, writeBytes uint64) {
 	}
 	return readBytes, writeBytes
 }
+
+// readMounts collects accessible real filesystems, always starting with root ("/").
+func readMounts(procRoot, rootDiskPath string, rootDisk DiskMetric) []MountMetric {
+	out := make([]MountMetric, 0, 4)
+	seenDev := make(map[string]struct{})
+	seenMount := make(map[string]struct{})
+
+	rootDev := ""
+	mountsPath := filepath.Join(procRoot, "1", "mounts")
+	if _, err := os.Stat(mountsPath); err != nil {
+		mountsPath = filepath.Join(procRoot, "mounts")
+	}
+
+	type rawMount struct{ dev, target string }
+	var candidates []rawMount
+	if f, err := os.Open(mountsPath); err == nil {
+		sc := bufio.NewScanner(f)
+		for sc.Scan() {
+			fields := strings.Fields(sc.Text())
+			if len(fields) < 3 {
+				continue
+			}
+			dev, target, fsType := fields[0], fields[1], fields[2]
+			if !strings.HasPrefix(dev, "/dev/") || isVirtualFS(fsType) {
+				continue
+			}
+			if target == "/" && rootDev == "" {
+				rootDev = filepath.Base(dev)
+			}
+			candidates = append(candidates, rawMount{dev: filepath.Base(dev), target: target})
+		}
+		f.Close()
+	}
+
+	if rootDisk.TotalGB > 0 {
+		out = append(out, MountMetric{
+			Mount:   "/",
+			Device:  rootDev,
+			UsedGB:  rootDisk.UsedGB,
+			TotalGB: rootDisk.TotalGB,
+			Percent: rootDisk.Percent,
+		})
+		seenMount["/"] = struct{}{}
+		if rootDev != "" {
+			seenDev[rootDev] = struct{}{}
+		}
+	}
+
+	for _, c := range candidates {
+		if _, ok := seenMount[c.target]; ok {
+			continue
+		}
+		if _, ok := seenDev[c.dev]; ok {
+			continue
+		}
+		if c.target == rootDiskPath {
+			continue
+		}
+		usage := readDiskUsage(c.target)
+		if usage.TotalGB < 0.2 {
+			continue
+		}
+		seenMount[c.target] = struct{}{}
+		seenDev[c.dev] = struct{}{}
+		out = append(out, MountMetric{
+			Mount:   c.target,
+			Device:  c.dev,
+			UsedGB:  usage.UsedGB,
+			TotalGB: usage.TotalGB,
+			Percent: usage.Percent,
+		})
+	}
+	return out
+}
+
+func isVirtualFS(fsType string) bool {
+	switch fsType {
+	case "ext2", "ext3", "ext4", "xfs", "btrfs", "zfs", "vfat", "exfat", "ntfs", "ntfs3", "f2fs":
+		return false
+	}
+	return true
+}
